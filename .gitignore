@@ -1,0 +1,70 @@
+# ==============================================================================
+# Pluto Browser (rust-browser-adit) .gitignore
+# Cross-platform coverage: Windows, Linux, and macOS
+# Note: Cargo.lock is intentionally tracked for reproducible application builds.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Rust / Cargo build outputs
+# ------------------------------------------------------------------------------
+/target/
+**/*.rs.bk
+
+# ------------------------------------------------------------------------------
+# Local browser profile, WebView caches & persisted user state
+# ------------------------------------------------------------------------------
+.browser-data/
+webview2/
+webview2_pluto/
+EBWebView/
+*.webview2/
+session.json
+bookmarks.json
+settings.json
+
+# ------------------------------------------------------------------------------
+# OS & Native compiled binary artifacts
+# ------------------------------------------------------------------------------
+# Windows
+*.exe
+*.dll
+*.pdb
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*.so
+*.so.*
+
+# macOS
+*.dylib
+*.dSYM/
+*.app/
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# ------------------------------------------------------------------------------
+# IDEs & Editors
+# ------------------------------------------------------------------------------
+.vscode/
+.idea/
+*.iml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+*~
+
+# ------------------------------------------------------------------------------
+# Logs, crash dumps & local environment secrets
+# ------------------------------------------------------------------------------
+*.log
+*.dmp
+.env
+.env.*
+

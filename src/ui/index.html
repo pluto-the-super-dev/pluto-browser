@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pluto Browser Chrome</title>
+  <!-- __STYLE__ -->
+</head>
+<body>
+  <div class="chrome">
+    <header class="tab-strip" id="tab-strip" role="tablist" aria-label="Open tabs">
+      <button
+        id="btn-brand"
+        class="brand-btn"
+        type="button"
+        title="Pluto Browser Welcome and Benchmarks"
+        aria-label="Open Pluto Browser Welcome"
+      >
+        <svg width="18" height="18" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <defs>
+            <radialGradient id="chrome-pluto-sphere" cx="35%" cy="30%" r="75%">
+              <stop offset="0%" stop-color="#f8e8d8" />
+              <stop offset="48%" stop-color="#9e74cc" />
+              <stop offset="100%" stop-color="#2c2459" />
+            </radialGradient>
+          </defs>
+          <rect x="1.5" y="1.5" width="29" height="29" rx="7.5" fill="#0a1530" />
+          <g class="pluto-orbit">
+            <path d="M5.5 21.5C3.8 18.6 8.3 13.4 15.6 10.6C22.9 7.8 28.4 8.7 26.5 11.8" stroke="#9d8df7" stroke-width="1.35" stroke-linecap="round" opacity="0.65" />
+            <circle cx="16" cy="16" r="6.6" fill="url(#chrome-pluto-sphere)" />
+            <path d="M16.2 13.9C17.3 13.1 18.7 13.6 18.7 14.9C18.7 16.3 16.5 17.7 16.2 18C15.9 17.7 13.7 16.3 13.7 14.9C13.7 13.6 15.1 13.1 16.2 13.9Z" fill="#fff5ec" opacity="0.38" />
+            <path d="M26.5 11.8C27.9 14.7 23.3 19.6 16.1 22.3C8.9 25 3.8 24.2 5.5 21.5" stroke="#e5d6ff" stroke-width="1.55" stroke-linecap="round" />
+            <circle class="pluto-moon" cx="25.2" cy="8.5" r="1.9" fill="#d6b6f6" />
+          </g>
+        </svg>
+      </button>
+      <div class="tabs-scroll" id="tabs-container"></div>
+      <button
+        id="btn-new-tab"
+        class="new-tab-btn"
+        type="button"
+        title="New Tab (Ctrl+T)"
+        aria-label="New Tab"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M8 3v10M3 8h10" />
+        </svg>
+      </button>
+    </header>
+
+    <div class="toolbar">
+      <div class="nav-controls">
+        <button id="btn-back" class="nav-btn" type="button" title="Back (Alt+Left)" aria-label="Back">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.5 3L5.5 8l5 5" />
+          </svg>
+        </button>
+        <button id="btn-forward" class="nav-btn" type="button" title="Forward (Alt+Right)" aria-label="Forward">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5.5 3l5 5-5 5" />
+          </svg>
+        </button>
+        <button id="btn-reload" class="nav-btn" type="button" title="Reload (Ctrl+R)" aria-label="Reload">
+          <svg id="icon-reload" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13.5 8a5.5 5.5 0 1 1-1.35-3.6" />
+            <path d="M13.5 2.5v2.8h-2.8" />
+          </svg>
+          <svg id="icon-stop" class="hidden" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
+        <button id="btn-home" class="nav-btn" type="button" title="New Tab Home" aria-label="Home">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2.5 7.2L8 2.5l5.5 4.7" />
+            <path d="M4 6.5v6.5h8V6.5" />
+          </svg>
+        </button>
+        <button id="btn-reopen" class="nav-btn" type="button" title="Reopen Closed Tab (Ctrl+Shift+T)" aria-label="Reopen Closed Tab">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3.2 5.2A5.5 5.5 0 1 1 2.5 8" />
+            <path d="M3 2.5v3h3" />
+          </svg>
+        </button>
+      </div>
+
+      <form id="omnibox-form" class="omnibox-wrap" autocomplete="off">
+        <span id="omnibox-badge" class="omnibox-badge badge-search">Search</span>
+        <input
+          id="omnibox"
+          class="omnibox-input"
+          type="text"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="Search DuckDuckGo or type a URL (try pluto://welcome)..."
+          aria-label="Address and search bar"
+        />
+        <button
+          id="btn-zoom"
+          class="zoom-pill hidden"
+          type="button"
+          title="Reset Zoom (Ctrl+0)"
+        >100%</button>
+        <button
+          id="btn-bookmark"
+          class="star-btn"
+          type="button"
+          title="Bookmark this page"
+          aria-label="Bookmark this page"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+            <path d="M8 2.2l1.8 3.65 4.02.58-2.91 2.84.69 4.01L8 11.38l-3.6 1.9.69-4.01L2.18 6.43l4.02-.58L8 2.2z" />
+          </svg>
+        </button>
+      </form>
+
+      <div class="dev-controls">
+        <button id="btn-find" class="nav-btn" type="button" title="Find in Page (Ctrl+F)" aria-label="Find in Page">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+            <circle cx="7" cy="7" r="4.5" />
+            <path d="M10.5 10.5L13.5 13.5" />
+          </svg>
+        </button>
+        <button id="btn-xray" class="tool-btn" type="button" title="Live Element X-Ray and Console (Ctrl+Shift+D)" aria-label="Live Inspector">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2.5" y="2.5" width="11" height="11" rx="2" />
+            <path d="M6 6.2L4.5 8 6 9.8M10 6.2L11.5 8 10 9.8" />
+          </svg>
+          <span>X-Ray</span>
+        </button>
+        <button id="btn-devtools" class="inspect-btn" type="button" title="Open Native DevTools (F12)" aria-label="Open DevTools">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4.5 5.5L2 8l2.5 2.5M11.5 5.5L14 8l-2.5 2.5M9 3.5l-2 9" />
+          </svg>
+          <span>Inspect</span>
+        </button>
+      </div>
+    </div>
+  </div>
+  <!-- __SCRIPT__ -->
+</body>
+</html>

@@ -1,0 +1,1559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Welcome - Pluto Browser</title>
+  <style>
+    :root {
+      --primary: #5645d4;
+      --primary-pressed: #4534b3;
+      --primary-deep: #3a2a99;
+      --on-primary: #ffffff;
+      --brand-navy: #0a1530;
+      --brand-navy-deep: #070f24;
+      --brand-navy-mid: #1a2a52;
+      --link-blue: #0075de;
+      --brand-orange: #dd5b00;
+      --brand-orange-deep: #793400;
+      --brand-pink: #ff64c8;
+      --brand-pink-deep: #a02e6d;
+      --brand-purple: #7b3ff2;
+      --brand-purple-800: #391c57;
+      --brand-teal: #2a9d99;
+      --brand-green: #1aae39;
+      --brand-yellow: #f5d75e;
+      --tint-peach: #ffe8d4;
+      --tint-rose: #fde0ec;
+      --tint-mint: #d9f3e1;
+      --tint-lavender: #e6e0f5;
+      --tint-sky: #dcecfa;
+      --tint-yellow: #fef7d6;
+      --tint-yellow-bold: #f9e79f;
+      --tint-cream: #f8f5e8;
+      --canvas: #ffffff;
+      --surface: #f6f5f4;
+      --surface-soft: #fafaf9;
+      --hairline: #e5e3df;
+      --hairline-soft: #ede9e4;
+      --hairline-strong: #c8c4be;
+      --ink-deep: #000000;
+      --ink: #1a1a1a;
+      --charcoal: #37352f;
+      --slate: #5d5b54;
+      --steel: #787671;
+      --stone: #a4a097;
+      --muted: #bbb8b1;
+      --on-dark: #ffffff;
+      --on-dark-muted: #a4a097;
+      --shadow-card: 0 4px 12px rgba(15, 15, 15, 0.08);
+      --shadow-mockup: 0 24px 48px -8px rgba(15, 15, 15, 0.2);
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --canvas: #191919;
+        --surface: #202020;
+        --surface-soft: #252525;
+        --hairline: #2e2e2e;
+        --hairline-soft: #292929;
+        --hairline-strong: #434343;
+        --ink: #f4f4f2;
+        --charcoal: #e5e3df;
+        --slate: #b5b2ab;
+        --steel: #9b9993;
+        --stone: #7c7a74;
+        --primary: #6b5be6;
+        --primary-pressed: #5645d4;
+        --shadow-card: 0 6px 18px rgba(0, 0, 0, 0.35);
+        --shadow-mockup: 0 24px 48px -8px rgba(0, 0, 0, 0.55);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: var(--canvas);
+      color: var(--ink);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* Sticky Top Navigation (<= 64px, single line) */
+    .top-nav {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      height: 64px;
+      background: var(--canvas);
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .nav-inner {
+      max-width: 1280px;
+      height: 100%;
+      margin: 0 auto;
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .nav-left {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+
+    .brand-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--ink);
+      font-weight: 600;
+      font-size: 16px;
+      letter-spacing: -0.2px;
+      white-space: nowrap;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+      color: var(--slate);
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+      transition: color 0.15s ease;
+    }
+
+    .nav-links a:hover {
+      color: var(--ink);
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    /* Notion Buttons (8px rectangular geometry, single line) */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 18px;
+      border-radius: var(--radius-md);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1.3;
+      white-space: nowrap;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background-color 0.18s var(--ease-out), border-color 0.18s ease, transform 0.16s var(--ease-out);
+    }
+
+    .btn:active {
+      transform: translateY(-1px) scale(0.98);
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: var(--on-primary);
+      border: 1px solid transparent;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-pressed);
+    }
+
+    .btn-dark {
+      background: var(--ink-deep);
+      color: var(--on-dark);
+      border: 1px solid transparent;
+    }
+
+    .btn-dark:hover {
+      background: #1a1a1a;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--ink);
+      border: none;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+    }
+
+    .btn-ghost:hover {
+      background: var(--surface);
+    }
+
+    .btn-secondary-on-dark {
+      background: transparent;
+      color: var(--on-dark);
+      border: 1px solid var(--on-dark-muted);
+    }
+
+    .btn-secondary-on-dark:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: var(--on-dark);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--hairline-strong);
+    }
+
+    .btn-secondary:hover {
+      background: var(--surface);
+    }
+
+    /* Deep Navy Hero Band & Pluto Orbital Centerpiece */
+    .hero-band {
+      position: relative;
+      background:
+        radial-gradient(680px circle at 50% 18%, rgba(86, 69, 212, 0.24), transparent 65%),
+        radial-gradient(460px circle at 20% 40%, rgba(123, 63, 242, 0.14), transparent 60%),
+        var(--brand-navy);
+      color: var(--on-dark);
+      padding: 48px 32px 88px;
+      overflow: hidden;
+      --px: 0px;
+      --py: 0px;
+    }
+
+    .hero-wires {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      opacity: 0.48;
+      will-change: transform;
+      transform: translate3d(calc(var(--px) * 0.35), calc(var(--py) * 0.35), 0);
+      transition: transform 0.25s var(--ease-out);
+    }
+
+    .kuiper-star {
+      transform-origin: center;
+      will-change: transform, opacity;
+      animation: starTwinkle 4.5s ease-in-out infinite;
+    }
+
+    .kuiper-star.s2 { animation-delay: 1.4s; animation-duration: 5.2s; }
+    .kuiper-star.s3 { animation-delay: 2.6s; animation-duration: 3.9s; }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+      max-width: 1120px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .pluto-orbital-wrap {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 18px;
+      will-change: transform;
+      transform: translate3d(var(--px), var(--py), 0);
+      transition: transform 0.2s var(--ease-out);
+    }
+
+    .pluto-hero-svg {
+      width: 184px;
+      height: 120px;
+      overflow: visible;
+      filter: drop-shadow(0 16px 32px rgba(86, 69, 212, 0.28));
+    }
+
+    .pluto-sphere-float {
+      transform-origin: 110px 62px;
+      will-change: transform;
+      animation: plutoFloat 6.5s ease-in-out infinite;
+    }
+
+    .pluto-ring-spin {
+      transform-origin: 110px 62px;
+      will-change: transform;
+      animation: orbitSweep 28s linear infinite;
+    }
+
+    .charon-float {
+      transform-origin: 110px 62px;
+      will-change: transform;
+      animation: charonOrbit 9s ease-in-out infinite;
+    }
+
+    .hero-pill-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 4px;
+      margin-bottom: 14px;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(214, 182, 246, 0.26);
+      color: #d6b6f6;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.9px;
+      text-transform: uppercase;
+    }
+
+    .hero-pill-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #1aae39;
+      box-shadow: 0 0 8px rgba(26, 174, 57, 0.8);
+    }
+
+    .hero-title {
+      max-width: 820px;
+      font-size: clamp(38px, 5.2vw, 66px);
+      font-weight: 600;
+      line-height: 1.06;
+      letter-spacing: -1.8px;
+      color: var(--on-dark);
+      opacity: 0;
+      transform: translateY(14px);
+      animation: revealUp 0.65s var(--ease-out) forwards;
+    }
+
+    .hero-sub {
+      margin-top: 20px;
+      max-width: 580px;
+      font-size: 18px;
+      font-weight: 400;
+      line-height: 1.5;
+      color: rgba(255, 255, 255, 0.8);
+      opacity: 0;
+      transform: translateY(14px);
+      animation: revealUp 0.65s var(--ease-out) 0.08s forwards;
+    }
+
+    .hero-ctas {
+      margin-top: 28px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      opacity: 0;
+      transform: translateY(14px);
+      animation: revealUp 0.65s var(--ease-out) 0.16s forwards;
+    }
+
+    /* Embedded Workspace Mockup Card (Level 3 elevation) */
+    .workspace-mockup {
+      width: 100%;
+      max-width: 1040px;
+      margin-top: 44px;
+      background: var(--canvas);
+      color: var(--ink);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--hairline);
+      box-shadow: var(--shadow-mockup);
+      overflow: hidden;
+      text-align: left;
+      opacity: 0;
+      transform: translateY(20px);
+      animation: revealUp 0.75s var(--ease-out) 0.24s forwards;
+    }
+
+    .mockup-chrome {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 18px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .mockup-page-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .seg-tabs {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .seg-tab {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      padding: 6px 2px;
+      color: var(--steel);
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: color 0.14s ease, border-color 0.14s ease;
+    }
+
+    .seg-tab:hover {
+      color: var(--ink);
+    }
+
+    .seg-tab.active {
+      color: var(--ink);
+      border-bottom-color: var(--ink);
+    }
+
+    .mockup-body {
+      padding: 24px;
+    }
+
+    .kanban-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .kanban-col {
+      background: var(--surface-soft);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-lg);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .col-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--charcoal);
+    }
+
+    .tag-chip {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+
+    .tag-purple { background: var(--tint-lavender); color: var(--brand-purple-800); }
+    .tag-orange { background: var(--tint-peach); color: var(--brand-orange-deep); }
+    .tag-green { background: var(--tint-mint); color: var(--brand-green); }
+
+    .task-card {
+      background: var(--canvas);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, transform 0.16s var(--ease-out);
+    }
+
+    .task-card:hover {
+      border-color: var(--primary);
+      transform: translateY(-2px);
+    }
+
+    .task-card h4 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink);
+      margin-top: 8px;
+    }
+
+    .task-card p {
+      font-size: 13px;
+      color: var(--slate);
+      margin-top: 4px;
+    }
+
+    .inspector-sandbox {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .sandbox-stage {
+      background: var(--surface);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .sandbox-node {
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      background: var(--canvas);
+      border: 1px solid var(--hairline);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: border-color 0.15s ease, transform 0.15s var(--ease-out);
+    }
+
+    .sandbox-node:hover,
+    .sandbox-node.selected {
+      border-color: var(--primary);
+      transform: translateX(2px);
+    }
+
+    .sandbox-readout {
+      background: var(--brand-navy);
+      color: var(--on-dark);
+      border-radius: var(--radius-lg);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 12.5px;
+    }
+
+    .shortcut-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .shortcut-tile {
+      padding: 14px;
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      border: 1px solid var(--hairline);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 13.5px;
+      color: var(--charcoal);
+    }
+
+    .shortcut-tile kbd {
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      background: var(--canvas);
+      border: 1px solid var(--hairline-strong);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink);
+      white-space: nowrap;
+    }
+
+    /* Main Content Container */
+    .section-wrap {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 64px 32px;
+    }
+
+    .section-header-stack {
+      max-width: 680px;
+      margin-bottom: 32px;
+    }
+
+    .eyebrow {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--primary);
+      margin-bottom: 8px;
+    }
+
+    .section-header-stack h2 {
+      font-size: clamp(28px, 3.6vw, 40px);
+      font-weight: 600;
+      line-height: 1.15;
+      letter-spacing: -0.5px;
+      color: var(--ink);
+    }
+
+    .section-header-stack p {
+      margin-top: 10px;
+      font-size: 16px;
+      color: var(--slate);
+      max-width: 60ch;
+    }
+
+    /* Bold Yellow Feature Banner */
+    .banner-yellow {
+      background: var(--tint-yellow-bold);
+      color: #37352f;
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 24px;
+    }
+
+    .banner-yellow h3 {
+      font-size: 28px;
+      font-weight: 600;
+      line-height: 1.25;
+      color: #1a1a1a;
+    }
+
+    .banner-yellow p {
+      margin-top: 6px;
+      font-size: 15px;
+      color: #37352f;
+      max-width: 560px;
+    }
+
+    /* Asymmetric Pastel Bento (exact 4 cells, visual diversity) */
+    .bento-grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 20px;
+    }
+
+    .bento-card {
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      color: #37352f;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 18px;
+      overflow: hidden;
+      transition: transform 0.2s var(--ease-out);
+    }
+
+    .bento-card:hover {
+      transform: translateY(-2px);
+    }
+
+    .bento-7 { grid-column: span 7; }
+    .bento-5 { grid-column: span 5; }
+    .tint-peach { background: var(--tint-peach); }
+    .tint-mint { background: var(--tint-mint); }
+    .tint-sky { background: var(--tint-sky); }
+    .tint-lavender { background: var(--tint-lavender); }
+
+    .bento-card h3 {
+      font-size: 22px;
+      font-weight: 600;
+      line-height: 1.3;
+      color: #1a1a1a;
+    }
+
+    .bento-card p {
+      margin-top: 8px;
+      font-size: 15px;
+      color: #37352f;
+      max-width: 48ch;
+    }
+
+    .bento-photo {
+      width: 100%;
+      height: 180px;
+      object-fit: cover;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(15, 15, 15, 0.08);
+    }
+
+    .bento-code-card {
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(15, 15, 15, 0.08);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 12.5px;
+      color: #1a1a1a;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    /* 4-Tier Comparison Row (Notion pricing-card pattern) */
+    .compare-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .tier-card {
+      background: var(--canvas);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .tier-card.featured {
+      background: var(--surface);
+      border: 2px solid var(--primary);
+      box-shadow: var(--shadow-card);
+    }
+
+    .tier-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .tier-name {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .badge-popular {
+      padding: 3px 9px;
+      border-radius: 9999px;
+      background: var(--primary);
+      color: var(--on-primary);
+      font-size: 11.5px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .tier-metric {
+      font-size: 32px;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+      line-height: 1.15;
+      color: var(--ink);
+    }
+
+    .tier-sub {
+      font-size: 13.5px;
+      color: var(--slate);
+    }
+
+    .tier-facts {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-top: 10px;
+      border-top: 1px solid var(--hairline-soft);
+      font-size: 13.5px;
+      color: var(--charcoal);
+    }
+
+    .comparison-table-wrap {
+      background: var(--canvas);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+    }
+
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      text-align: left;
+    }
+
+    .comparison-table th,
+    .comparison-table td {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--hairline-soft);
+    }
+
+    .comparison-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .comparison-table th {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--slate);
+      background: var(--surface);
+    }
+
+    .comparison-table td.col-pluto,
+    .comparison-table th.col-pluto,
+    .comparison-table td.col-adit,
+    .comparison-table th.col-adit {
+      color: var(--primary);
+      font-weight: 600;
+      background: rgba(86, 69, 212, 0.05);
+    }
+
+    /* Bottom Destination Picker & CTA Banner */
+    .cta-banner {
+      background: var(--surface);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-lg);
+      padding: 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 20px;
+    }
+
+    .cta-banner h2 {
+      font-size: 32px;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+      color: var(--ink);
+    }
+
+    .cta-banner p {
+      font-size: 15px;
+      color: var(--slate);
+      max-width: 58ch;
+    }
+
+    .dest-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .pill-tab {
+      padding: 8px 16px;
+      border-radius: 9999px;
+      border: 1px solid var(--hairline-strong);
+      background: var(--canvas);
+      color: var(--steel);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+    }
+
+    .pill-tab:hover {
+      color: var(--ink);
+    }
+
+    .pill-tab.active {
+      background: var(--ink-deep);
+      color: var(--on-dark);
+      border-color: var(--ink-deep);
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-top: 4px;
+    }
+
+    .link-inline {
+      color: var(--link-blue);
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      cursor: pointer;
+      background: transparent;
+      border: none;
+      font-family: inherit;
+    }
+
+    .link-inline:hover {
+      text-decoration: underline;
+    }
+
+    .site-footer {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 32px 48px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--steel);
+      font-size: 13px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @keyframes revealUp {
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes plutoFloat {
+      0%, 100% {
+        transform: translate3d(0, 0, 0);
+      }
+      50% {
+        transform: translate3d(0, -6px, 0);
+      }
+    }
+
+    @keyframes orbitSweep {
+      0% {
+        transform: rotate(-2deg);
+      }
+      50% {
+        transform: rotate(3deg);
+      }
+      100% {
+        transform: rotate(-2deg);
+      }
+    }
+
+    @keyframes charonOrbit {
+      0%, 100% {
+        transform: translate3d(0, 0, 0) scale(1);
+      }
+      50% {
+        transform: translate3d(-10px, 5px, 0) scale(1.06);
+      }
+    }
+
+    @keyframes starTwinkle {
+      0%, 100% {
+        opacity: 0.45;
+        transform: scale(0.95);
+      }
+      50% {
+        opacity: 1;
+        transform: scale(1.18);
+      }
+    }
+
+    @media (max-width: 1023px) {
+      .compare-cards { grid-template-columns: repeat(2, 1fr); }
+      .bento-7, .bento-5 { grid-column: span 12; }
+      .kanban-grid, .inspector-sandbox, .shortcut-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 767px) {
+      .nav-links { display: none; }
+      .compare-cards { grid-template-columns: 1fr; }
+      .hero-band { padding: 48px 20px 64px; }
+      .section-wrap { padding: 48px 20px; }
+      .cta-banner { padding: 28px 20px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="top-nav">
+    <div class="nav-inner">
+      <div class="nav-left">
+        <a class="brand-link" href="#top">
+          <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <defs>
+              <radialGradient id="nav-pluto-sphere" cx="35%" cy="30%" r="75%">
+                <stop offset="0%" stop-color="#f8e8d8" />
+                <stop offset="48%" stop-color="#9e74cc" />
+                <stop offset="100%" stop-color="#2c2459" />
+              </radialGradient>
+            </defs>
+            <rect x="1.5" y="1.5" width="29" height="29" rx="7.5" fill="#0a1530" />
+            <path d="M5.5 21.5C3.8 18.6 8.3 13.4 15.6 10.6C22.9 7.8 28.4 8.7 26.5 11.8" stroke="#9d8df7" stroke-width="1.35" stroke-linecap="round" opacity="0.65" />
+            <circle cx="16" cy="16" r="6.6" fill="url(#nav-pluto-sphere)" />
+            <path d="M16.2 13.9C17.3 13.1 18.7 13.6 18.7 14.9C18.7 16.3 16.5 17.7 16.2 18C15.9 17.7 13.7 16.3 13.7 14.9C13.7 13.6 15.1 13.1 16.2 13.9Z" fill="#fff5ec" opacity="0.38" />
+            <path d="M26.5 11.8C27.9 14.7 23.3 19.6 16.1 22.3C8.9 25 3.8 24.2 5.5 21.5" stroke="#e5d6ff" stroke-width="1.55" stroke-linecap="round" />
+            <circle cx="25.2" cy="8.5" r="1.9" fill="#d6b6f6" />
+          </svg>
+          <span>Pluto Browser</span>
+        </a>
+        <nav class="nav-links" aria-label="Sections">
+          <a href="#workspace">Workspace</a>
+          <a href="#inspector">Inspector</a>
+          <a href="#compare">Compare</a>
+          <a href="#setup">Setup</a>
+        </nav>
+      </div>
+      <div class="nav-actions">
+        <button class="btn btn-ghost" id="btn-nav-skip" type="button">New Tab</button>
+        <button class="btn btn-primary" id="btn-nav-start" type="button">Open Workspace</button>
+      </div>
+    </div>
+  </header>
+
+  <section id="top" class="hero-band">
+    <svg class="hero-wires" viewBox="0 0 1200 600" fill="none" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M-40 120 C 260 40, 420 260, 740 140 S 1060 220, 1240 90" stroke="#1a2a52" stroke-width="1.5" />
+      <path d="M-40 310 C 220 200, 520 390, 860 260 S 1100 320, 1240 240" stroke="#5645d4" stroke-width="1.2" opacity="0.45" />
+      <ellipse cx="600" cy="180" rx="520" ry="155" transform="rotate(-8 600 180)" stroke="#5645d4" stroke-width="1" stroke-dasharray="4 10" opacity="0.32" />
+      <circle class="kuiper-star" cx="148" cy="112" r="5" fill="#ff64c8" />
+      <circle class="kuiper-star s2" cx="1032" cy="126" r="6" fill="#f5d75e" />
+      <circle class="kuiper-star s3" cx="230" cy="280" r="4" fill="#2a9d99" />
+      <circle class="kuiper-star s2" cx="965" cy="272" r="5" fill="#d6b6f6" />
+      <circle class="kuiper-star s3" cx="88" cy="215" r="4" fill="#dd5b00" />
+      <circle class="kuiper-star" cx="382" cy="68" r="2.5" fill="#ffffff" />
+      <circle class="kuiper-star s2" cx="844" cy="74" r="2.5" fill="#d6b6f6" />
+      <circle class="kuiper-star s3" cx="740" cy="210" r="2" fill="#f5d75e" />
+    </svg>
+
+    <div class="hero-content">
+      <div class="pluto-orbital-wrap">
+        <svg class="pluto-hero-svg" viewBox="0 0 220 124" fill="none" aria-hidden="true">
+          <defs>
+            <radialGradient id="pluto-hero-atmo" cx="50%" cy="50%" r="50%">
+              <stop offset="52%" stop-color="#7b3ff2" stop-opacity="0.34" />
+              <stop offset="100%" stop-color="#0a1530" stop-opacity="0" />
+            </radialGradient>
+            <radialGradient id="pluto-hero-body" cx="34%" cy="28%" r="76%">
+              <stop offset="0%" stop-color="#fff1e3" />
+              <stop offset="32%" stop-color="#cf9ee3" />
+              <stop offset="70%" stop-color="#5645d4" />
+              <stop offset="100%" stop-color="#17143a" />
+            </radialGradient>
+            <linearGradient id="pluto-ring-grad" x1="20" y1="90" x2="200" y2="34" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#a292ff" stop-opacity="0.25" />
+              <stop offset="50%" stop-color="#f3e8ff" stop-opacity="0.95" />
+              <stop offset="100%" stop-color="#7b3ff2" stop-opacity="0.35" />
+            </linearGradient>
+          </defs>
+
+          <circle cx="110" cy="62" r="56" fill="url(#pluto-hero-atmo)" />
+
+          <!-- Outer Kuiper elliptical orbit behind Pluto -->
+          <g class="pluto-ring-spin">
+            <path d="M 24 85 A 92 26 -19 0 1 196 39" stroke="#7b3ff2" stroke-width="1.5" stroke-dasharray="3 6" opacity="0.65" />
+            <path d="M 42 84 A 74 21 -19 0 1 178 40" stroke="#9d8df7" stroke-width="2" stroke-linecap="round" opacity="0.55" />
+          </g>
+
+          <!-- Planet Pluto -->
+          <g class="pluto-sphere-float">
+            <circle cx="110" cy="62" r="37" fill="url(#pluto-hero-body)" stroke="rgba(255,255,255,0.22)" stroke-width="1" />
+            <!-- Tombaugh Regio heart nitrogen-ice basin -->
+            <path d="M113 48 C119 43, 129 47, 129 56 C129 66, 115 74, 112 76 C109 74, 96 66, 96 56 C96 47, 106 43, 113 48 Z" fill="#fff7ef" opacity="0.26" />
+            <path d="M84 44 C92 31, 114 24, 131 32" stroke="#f5e6ff" stroke-width="1.4" stroke-linecap="round" opacity="0.45" />
+          </g>
+
+          <!-- Front orbital ring crossing in front of Pluto -->
+          <g class="pluto-ring-spin">
+            <path d="M 178 40 A 74 21 -19 0 1 42 84" stroke="url(#pluto-ring-grad)" stroke-width="2.4" stroke-linecap="round" />
+            <path d="M 196 39 A 92 26 -19 0 1 24 85" stroke="#d6b6f6" stroke-width="1" stroke-dasharray="2 7" opacity="0.5" />
+          </g>
+
+          <!-- Charon Moon Satellite -->
+          <g class="charon-float">
+            <circle cx="182" cy="31" r="10" fill="rgba(214, 182, 246, 0.16)" />
+            <circle cx="182" cy="31" r="5.5" fill="#efe6ff" />
+          </g>
+        </svg>
+
+        <div class="hero-pill-badge">
+          <span class="hero-pill-dot" aria-hidden="true"></span>
+          <span>PLUTO ENGINE V0.3 - KUIPER ORBITAL RELEASE</span>
+        </div>
+      </div>
+
+      <h1 class="hero-title">The orbital workspace browser, built in Rust.</h1>
+      <p class="hero-sub">
+        Native WebView2 rendering, automatic background tab memory trimming, a built-in DOM X-Ray inspector, and a 1.06 MB release binary.
+      </p>
+      <div class="hero-ctas">
+        <button class="btn btn-primary" id="btn-hero-start" type="button">Open Workspace</button>
+        <button class="btn btn-secondary-on-dark" id="btn-hero-xray" type="button">Try Live Inspector</button>
+      </div>
+
+      <div id="workspace" class="workspace-mockup">
+        <div class="mockup-chrome">
+          <div class="mockup-page-title">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="8" cy="8" r="5" />
+              <ellipse cx="8" cy="8" rx="7" ry="2.6" transform="rotate(-24 8 8)" />
+            </svg>
+            <span>Pluto HQ</span>
+          </div>
+          <div class="seg-tabs" role="tablist">
+            <button class="seg-tab active" type="button" data-mock="board">Workspace Board</button>
+            <button class="seg-tab" type="button" data-mock="sandbox">Live Inspector</button>
+            <button class="seg-tab" type="button" data-mock="keys">Shortcuts</button>
+          </div>
+        </div>
+
+        <div class="mockup-body">
+          <div id="mock-board" class="kanban-grid">
+            <div class="kanban-col">
+              <div class="col-header">
+                <span>Core Architecture</span>
+                <span class="tag-chip tag-purple">Rust</span>
+              </div>
+              <div class="task-card">
+                <span class="tag-chip tag-green">Ready</span>
+                <h4>Native tao + wry shell</h4>
+                <p>1.06 MB stripped release binary with LTO and zero GC pauses.</p>
+              </div>
+              <div class="task-card">
+                <span class="tag-chip tag-purple">Memory</span>
+                <h4>Orbital Tab Hibernation</h4>
+                <p>Inactive tabs trim via WebView2 MemoryUsageLevel::Low on switch.</p>
+              </div>
+            </div>
+
+            <div class="kanban-col">
+              <div class="col-header">
+                <span>Performance &amp; X-Ray</span>
+                <span class="tag-chip tag-orange">Tools</span>
+              </div>
+              <div class="task-card" id="card-launch-xray">
+                <span class="tag-chip tag-orange">Ctrl+Shift+D</span>
+                <h4>Live Pluto Inspector</h4>
+                <p>RAF-throttled X-Ray reads computed typography, spacing, and selectors.</p>
+              </div>
+              <div class="task-card" id="card-launch-f12">
+                <span class="tag-chip tag-purple">GPU Raster</span>
+                <h4>Zero-Copy + F12 DevTools</h4>
+                <p>Hardware GPU rasterization and keyed DOM diffing for instant chrome updates.</p>
+              </div>
+            </div>
+
+            <div class="kanban-col">
+              <div class="col-header">
+                <span>Navigation Flow</span>
+                <span class="tag-chip tag-green">Fast</span>
+              </div>
+              <div class="task-card">
+                <span class="tag-chip tag-green">Ctrl+L</span>
+                <h4>Smart Omnibox</h4>
+                <p>Auto-detects URLs, pluto:// routes, and DuckDuckGo searches.</p>
+              </div>
+              <div class="task-card">
+                <span class="tag-chip tag-orange">Ctrl+Shift+T</span>
+                <h4>Pin &amp; Reopen Tabs</h4>
+                <p>Double-click any tab to pin it, or restore closed tabs instantly.</p>
+              </div>
+            </div>
+          </div>
+
+          <div id="mock-sandbox" class="inspector-sandbox hidden">
+            <div class="sandbox-stage">
+              <div class="sandbox-node selected" data-node="h1.hero-title" data-font="68px / 600" data-color="#ffffff" data-radius="0px">
+                <strong>h1.hero-title</strong>
+                <span class="tag-chip tag-purple">Display</span>
+              </div>
+              <div class="sandbox-node" data-node="button.btn-primary" data-font="14px / 500" data-color="#5645d4" data-radius="8px">
+                <strong>button.btn-primary</strong>
+                <span class="tag-chip tag-green">CTA</span>
+              </div>
+              <div class="sandbox-node" data-node="div.workspace-mockup" data-font="14px / 400" data-color="#ffffff" data-radius="12px">
+                <strong>div.workspace-mockup</strong>
+                <span class="tag-chip tag-orange">Card</span>
+              </div>
+            </div>
+            <div class="sandbox-readout" id="sandbox-readout">
+              <div style="color:#a4a097;">Computed Element Snapshot</div>
+              <div>selector: <span id="sb-sel" style="color:#d6b6f6;">h1.hero-title</span></div>
+              <div>typography: <span id="sb-font">68px / 600</span></div>
+              <div>token: <span id="sb-color">#ffffff</span></div>
+              <div>radius: <span id="sb-radius">0px</span></div>
+              <div style="margin-top:auto;display:flex;gap:8px;padding-top:8px;">
+                <button class="btn btn-primary" id="btn-sb-xray" type="button">Launch X-Ray</button>
+                <button class="btn btn-secondary-on-dark" id="btn-sb-f12" type="button">Open F12</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="mock-keys" class="shortcut-grid hidden">
+            <div class="shortcut-tile"><span>Focus Omnibox</span><kbd>Ctrl+L</kbd></div>
+            <div class="shortcut-tile"><span>New Tab</span><kbd>Ctrl+T</kbd></div>
+            <div class="shortcut-tile"><span>Reopen Closed Tab</span><kbd>Ctrl+Shift+T</kbd></div>
+            <div class="shortcut-tile"><span>Live X-Ray Inspector</span><kbd>Ctrl+Shift+D</kbd></div>
+            <div class="shortcut-tile"><span>Native DevTools</span><kbd>F12</kbd></div>
+            <div class="shortcut-tile"><span>Find in Page</span><kbd>Ctrl+F</kbd></div>
+            <div class="shortcut-tile"><span>Zoom In / Out / Reset</span><kbd>Ctrl+ / - / 0</kbd></div>
+            <div class="shortcut-tile"><span>Switch Tabs</span><kbd>Ctrl+Tab</kbd></div>
+            <div class="shortcut-tile"><span>History Back / Forward</span><kbd>Alt+Left / Right</kbd></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="inspector" class="section-wrap">
+    <div class="section-header-stack">
+      <h2>Keep building and inspecting without switching tools.</h2>
+      <p>Every page runs inside an OS-native WebView with instant DOM inspection, live console evaluation, and keyboard-first controls.</p>
+    </div>
+
+    <div class="banner-yellow">
+      <div>
+        <h3>Inspect any live page with X-Ray and F12 DevTools</h3>
+        <p>Check computed fonts, hex colors, element dimensions, DOM node counts, and run JavaScript expressions directly from the top toolbar.</p>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-dark" id="btn-banner-xray" type="button">Open X-Ray HUD</button>
+        <button class="btn btn-secondary" id="btn-banner-f12" type="button" style="border-color:#37352f;">Open F12 DevTools</button>
+      </div>
+    </div>
+
+    <div class="bento-grid">
+      <div class="bento-card bento-7 tint-peach">
+        <div>
+          <h3>Live Element X-Ray and CSS Selector Copy</h3>
+          <p>Hover any element to measure its exact box dimensions, font stack, padding, and border radius, then click to copy its selector.</p>
+        </div>
+        <div class="bento-code-card">
+          <div>selector: main.workspace &gt; button.primary</div>
+          <div>size: 164 x 40 px | font: 14px / 500</div>
+          <div>color: #ffffff | bg: #5645d4 | radius: 8px</div>
+        </div>
+      </div>
+
+      <div class="bento-card bento-5 tint-mint">
+        <div>
+          <h3>Orbital Tab Hibernation &amp; Pure Rust Core</h3>
+          <p>Active tabs run at full speed while background tabs automatically drop to low WebView2 memory target levels.</p>
+        </div>
+        <div class="bento-code-card">
+          <div>[active_tab] MemoryUsageLevel::Normal</div>
+          <div>[hidden_tabs] MemoryUsageLevel::Low</div>
+          <div>[chrome_ui] Keyed DOM diff + OnceLock HTML cache</div>
+        </div>
+      </div>
+
+      <div class="bento-card bento-5 tint-sky">
+        <div>
+          <h3>Zero-Copy GPU Raster &amp; Instant Chrome</h3>
+          <p>Enabled GPU rasterization, zero-copy compositing, RAF-throttled X-Ray, Ctrl+F search, and Ctrl+/- zoom.</p>
+        </div>
+        <div class="bento-code-card">
+          <div>--enable-gpu-rasterization</div>
+          <div>--enable-zero-copy</div>
+          <div>--disable-background-networking</div>
+        </div>
+      </div>
+
+      <div class="bento-card bento-7 tint-lavender">
+        <div>
+          <h3>Console REPL and Performance Telemetry</h3>
+          <p>Inspect captured console logs, measure DOMContentLoaded and total page load times, and query storage keys inside any tab.</p>
+        </div>
+        <div class="bento-code-card">
+          <div>&gt; document.querySelectorAll("section").length =&gt; 4</div>
+          <div>[DOMContentLoaded] 42 ms | [Nodes] 318 | [Storage] 3 keys</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="compare" class="section-wrap" style="padding-top:16px;">
+    <div class="section-header-stack">
+      <div class="eyebrow">Compare</div>
+      <h2>Lightweight by architecture, not by compromise.</h2>
+      <p>Compiled Rust footprint compared with standard single-tab desktop browsers on Windows.</p>
+    </div>
+
+    <div class="compare-cards">
+      <div class="tier-card featured">
+        <div class="tier-head">
+          <span class="tier-name">Pluto Browser</span>
+          <span class="badge-popular">Rust Core</span>
+        </div>
+        <div class="tier-metric">1.06 MB</div>
+        <div class="tier-sub">Stripped LTO release binary</div>
+        <ul class="tier-facts">
+          <li>20.7 MB idle working set</li>
+          <li>Background tab memory trimming</li>
+          <li>Built-in Pluto Inspector + F12</li>
+          <li>Local JSON bookmarks and session</li>
+        </ul>
+        <button class="btn btn-primary" id="btn-tier-start" type="button" style="margin-top:auto;">Open Workspace</button>
+      </div>
+
+      <div class="tier-card">
+        <div class="tier-head">
+          <span class="tier-name">Google Chrome</span>
+        </div>
+        <div class="tier-metric">~110 MB</div>
+        <div class="tier-sub">Bundled Blink runtime</div>
+        <ul class="tier-facts">
+          <li>~320 MB idle RAM usage</li>
+          <li>~1,400 ms cold start</li>
+          <li>Full DevTools suite</li>
+          <li>Background update services</li>
+        </ul>
+      </div>
+
+      <div class="tier-card">
+        <div class="tier-head">
+          <span class="tier-name">Brave Browser</span>
+        </div>
+        <div class="tier-metric">~125 MB</div>
+        <div class="tier-sub">Chromium fork runtime</div>
+        <ul class="tier-facts">
+          <li>~290 MB idle RAM usage</li>
+          <li>~1,150 ms cold start</li>
+          <li>Built-in DevTools</li>
+          <li>Integrated rewards and crypto UI</li>
+        </ul>
+      </div>
+
+      <div class="tier-card">
+        <div class="tier-head">
+          <span class="tier-name">Arc Desktop</span>
+        </div>
+        <div class="tier-metric">~240 MB</div>
+        <div class="tier-sub">Swift and Chromium shell</div>
+        <ul class="tier-facts">
+          <li>~480 MB idle RAM usage</li>
+          <li>~2,100 ms cold start</li>
+          <li>Chromium DevTools</li>
+          <li>Account sign-in required</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="comparison-table-wrap">
+      <table class="comparison-table">
+        <thead>
+          <tr>
+            <th>Attribute</th>
+            <th class="col-pluto">Pluto Browser</th>
+            <th>Google Chrome</th>
+            <th>Brave</th>
+            <th>Arc Desktop</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Shell Language</td>
+            <td class="col-pluto">100% Rust (wry + tao)</td>
+            <td>C++</td>
+            <td>C++</td>
+            <td>Swift + C++</td>
+          </tr>
+          <tr>
+            <td>Memory Safety</td>
+            <td class="col-pluto">Compile-time borrow checker</td>
+            <td>Manual memory management</td>
+            <td>Manual memory management</td>
+            <td>Hybrid</td>
+          </tr>
+          <tr>
+            <td>Private Idle Memory</td>
+            <td class="col-pluto">3.8 MB host + tab trimming</td>
+            <td>~180 MB+</td>
+            <td>~165 MB+</td>
+            <td>~260 MB+</td>
+          </tr>
+          <tr>
+            <td>Telemetry &amp; Daemons</td>
+            <td class="col-pluto">Zero background daemons</td>
+            <td>Updater and crash reporter</td>
+            <td>Updater and telemetry options</td>
+            <td>Cloud sync service</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="setup" class="section-wrap" style="padding-top:16px;">
+    <div class="cta-banner">
+      <h2>Choose where your workspace opens.</h2>
+      <p>Select your starting page below. You can return to this welcome guide anytime from the Pluto icon in the tab bar.</p>
+
+      <div class="dest-pills" id="dest-pills">
+        <button class="pill-tab active" type="button" data-dest="pluto://newtab">New Tab Workspace</button>
+        <button class="pill-tab" type="button" data-dest="https://duckduckgo.com">DuckDuckGo</button>
+        <button class="pill-tab" type="button" data-dest="https://github.com">GitHub</button>
+        <button class="pill-tab" type="button" data-dest="https://www.rust-lang.org">Rust Docs</button>
+      </div>
+
+      <div class="cta-row">
+        <button class="btn btn-primary" id="btn-finish" type="button">Open Workspace</button>
+        <button class="link-inline" id="btn-finish-inspector" type="button">Launch Live Inspector here</button>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <span>Pluto Browser - Built with Rust, Tao, and Wry.</span>
+    <span>pluto://welcome | pluto://newtab</span>
+  </footer>
+
+  <script>
+    (function () {
+      function post(payload) {
+        if (window.ipc && typeof window.ipc.postMessage === "function") {
+          window.ipc.postMessage(JSON.stringify(payload));
+        }
+      }
+
+      // Mockup segmented tabs
+      const segTabs = document.querySelectorAll(".seg-tab");
+      const views = {
+        board: document.getElementById("mock-board"),
+        sandbox: document.getElementById("mock-sandbox"),
+        keys: document.getElementById("mock-keys")
+      };
+
+      segTabs.forEach(function (tab) {
+        tab.addEventListener("click", function () {
+          segTabs.forEach(function (t) { t.classList.remove("active"); });
+          tab.classList.add("active");
+          const key = tab.dataset.mock;
+          Object.keys(views).forEach(function (k) {
+            views[k].classList.toggle("hidden", k !== key);
+          });
+        });
+      });
+
+      // Inspector sandbox interactive selector
+      const sbNodes = document.querySelectorAll(".sandbox-node");
+      const sbSel = document.getElementById("sb-sel");
+      const sbFont = document.getElementById("sb-font");
+      const sbColor = document.getElementById("sb-color");
+      const sbRadius = document.getElementById("sb-radius");
+
+      sbNodes.forEach(function (node) {
+        node.addEventListener("click", function () {
+          sbNodes.forEach(function (n) { n.classList.remove("selected"); });
+          node.classList.add("selected");
+          sbSel.textContent = node.dataset.node;
+          sbFont.textContent = node.dataset.font;
+          sbColor.textContent = node.dataset.color;
+          sbRadius.textContent = node.dataset.radius;
+        });
+      });
+
+      // GPU-composited pointer parallax for hero orbital system
+      const heroBand = document.getElementById("top");
+      const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (heroBand && !reduceMotion) {
+        let parallaxRaf = false;
+        let nextPx = 0;
+        let nextPy = 0;
+        heroBand.addEventListener("mousemove", function (e) {
+          const rect = heroBand.getBoundingClientRect();
+          const nx = (e.clientX - rect.left) / Math.max(1, rect.width) - 0.5;
+          const ny = (e.clientY - rect.top) / Math.max(1, rect.height) - 0.5;
+          nextPx = nx * -16;
+          nextPy = ny * -10;
+          if (parallaxRaf) return;
+          parallaxRaf = true;
+          requestAnimationFrame(function () {
+            parallaxRaf = false;
+            heroBand.style.setProperty("--px", nextPx.toFixed(2) + "px");
+            heroBand.style.setProperty("--py", nextPy.toFixed(2) + "px");
+          });
+        }, { passive: true });
+        heroBand.addEventListener("mouseleave", function () {
+          heroBand.style.setProperty("--px", "0px");
+          heroBand.style.setProperty("--py", "0px");
+        });
+      }
+
+      // Live Inspector & DevTools triggers
+      function triggerXray() {
+        if (window.__plutoToggleInspector) {
+          window.__plutoToggleInspector();
+        } else if (window.__aditToggleInspector) {
+          window.__aditToggleInspector();
+        } else {
+          post({ cmd: "toggle_inspector" });
+        }
+      }
+
+      function triggerDevtools() {
+        post({ cmd: "open_devtools" });
+      }
+
+      document.getElementById("btn-hero-xray").addEventListener("click", triggerXray);
+      document.getElementById("btn-sb-xray").addEventListener("click", triggerXray);
+      document.getElementById("btn-banner-xray").addEventListener("click", triggerXray);
+      document.getElementById("btn-finish-inspector").addEventListener("click", triggerXray);
+      document.getElementById("card-launch-xray").addEventListener("click", triggerXray);
+
+      document.getElementById("btn-sb-f12").addEventListener("click", triggerDevtools);
+      document.getElementById("btn-banner-f12").addEventListener("click", triggerDevtools);
+      document.getElementById("card-launch-f12").addEventListener("click", triggerDevtools);
+
+      // Destination selection
+      let selectedDest = "pluto://newtab";
+      const destPills = document.querySelectorAll("#dest-pills .pill-tab");
+      destPills.forEach(function (pill) {
+        pill.addEventListener("click", function () {
+          destPills.forEach(function (p) { p.classList.remove("active"); });
+          pill.classList.add("active");
+          selectedDest = pill.dataset.dest || "pluto://newtab";
+        });
+      });
+
+      function complete(dest) {
+        post({ cmd: "complete_onboarding", destination: dest });
+      }
+
+      document.getElementById("btn-nav-skip").addEventListener("click", function () {
+        complete("pluto://newtab");
+      });
+      document.getElementById("btn-nav-start").addEventListener("click", function () {
+        complete(selectedDest);
+      });
+      document.getElementById("btn-hero-start").addEventListener("click", function () {
+        complete(selectedDest);
+      });
+      document.getElementById("btn-tier-start").addEventListener("click", function () {
+        complete(selectedDest);
+      });
+      document.getElementById("btn-finish").addEventListener("click", function () {
+        complete(selectedDest);
+      });
+
+      post({ cmd: "ui_ready" });
+    })();
+  </script>
+</body>
+</html>
