@@ -1,14 +1,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod clipboard;
 mod ipc;
 mod storage;
 mod tabs;
+mod ui;
 
 use anyhow::{Context, Result};
 use app::AppState;
 use ipc::UserEvent;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
@@ -41,25 +44,46 @@ fn run() -> Result<()> {
     );
 
     let mut app_state = AppState::new(Rc::clone(&window), proxy)?;
+    let mut last_tick = Instant::now();
 
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
-
         match event {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
                     app_state.save_session();
                     *control_flow = ControlFlow::Exit;
+                    return;
                 }
-                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
-                    app_state.handle_resize();
+                other => {
+                    app_state.handle_window_event(&other);
                 }
-                _ => {}
             },
             Event::UserEvent(user_event) => {
                 app_state.handle_user_event(user_event);
             }
+            Event::MainEventsCleared => {
+                let fast = app_state.needs_fast_animation();
+                let blink = app_state.needs_caret_blink();
+                if fast && last_tick.elapsed() >= Duration::from_millis(16) {
+                    last_tick = Instant::now();
+                    app_state.request_redraw();
+                } else if blink && last_tick.elapsed() >= Duration::from_millis(450) {
+                    last_tick = Instant::now();
+                    app_state.request_redraw();
+                }
+            }
+            Event::RedrawRequested(_) => {
+                app_state.render();
+            }
             _ => {}
+        }
+
+        if app_state.needs_fast_animation() {
+            *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16));
+        } else if app_state.needs_caret_blink() {
+            *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(450));
+        } else {
+            *control_flow = ControlFlow::Wait;
         }
     });
 }
@@ -94,14 +118,12 @@ fn build_brand_icon() -> Option<Icon> {
                 continue;
             }
 
-            // Deep space navy (#0a1530) with subtle indigo Kuiper aura behind Pluto
             let radial = ((x - 0.5).powi(2) + (y - 0.5).powi(2)).sqrt();
             let aura = (1.0 - radial * 1.9).max(0.0).powi(2);
             let mut r = 10.0 + aura * 52.0;
             let mut g = 21.0 + aura * 38.0;
             let mut b = 48.0 + aura * 124.0;
 
-            // Local rotated coordinates for the elliptical orbital ring
             let cx = x - 0.5;
             let cy = y - 0.5;
             let u = cx * cos_a - cy * sin_a;
@@ -112,7 +134,6 @@ fn build_brand_icon() -> Option<Icon> {
             let ring_dist = ((norm_sq - 1.0) / grad_mag).abs() - 0.022;
             let ring_alpha = (0.5 - ring_dist * SIZE as f32).clamp(0.0, 1.0);
 
-            // Back arc of the orbital ring (v < 0)
             if v < 0.0 && ring_alpha > 0.0 {
                 let a = ring_alpha * 0.68;
                 r = r * (1.0 - a) + 178.0 * a;
@@ -120,7 +141,6 @@ fn build_brand_icon() -> Option<Icon> {
                 b = b * (1.0 - a) + 245.0 * a;
             }
 
-            // Planet Pluto sphere
             let planet_dist = radial - planet_r;
             let planet_alpha = (0.5 - planet_dist * SIZE as f32).clamp(0.0, 1.0);
             if planet_alpha > 0.0 {
@@ -128,16 +148,13 @@ fn build_brand_icon() -> Option<Icon> {
                 let ny = (cy / planet_r).clamp(-1.0, 1.0);
                 let nz = (1.0 - nx * nx - ny * ny).max(0.0).sqrt();
 
-                // Directional sun light from top-left
                 let diffuse = (nx * -0.52 + ny * -0.48 + nz * 0.70).clamp(0.0, 1.0);
                 let rim = (1.0 - nz).powi(3);
 
-                // Warm twilight Pluto surface + bright nitrogen ice Tombaugh Regio highlight
                 let mut pr = 64.0 + diffuse * 158.0 + rim * 65.0;
                 let mut pg = 52.0 + diffuse * 130.0 + rim * 55.0;
                 let mut pb = 110.0 + diffuse * 112.0 + rim * 110.0;
 
-                // Brighter icy heart-basin accent on lower-right lit face
                 let ice_d = ((nx - 0.16).powi(2) + (ny + 0.04).powi(2)).sqrt();
                 let ice = (1.0 - ice_d * 1.9).max(0.0) * 0.55;
                 pr = pr * (1.0 - ice) + 248.0 * ice;
@@ -149,7 +166,6 @@ fn build_brand_icon() -> Option<Icon> {
                 b = b * (1.0 - planet_alpha) + pb * planet_alpha;
             }
 
-            // Front arc of the orbital ring (v >= 0) crossing in front of Pluto
             if v >= 0.0 && ring_alpha > 0.0 {
                 let a = ring_alpha * 0.94;
                 r = r * (1.0 - a) + 232.0 * a;
@@ -157,7 +173,6 @@ fn build_brand_icon() -> Option<Icon> {
                 b = b * (1.0 - a) + 255.0 * a;
             }
 
-            // Charon moon satellite at upper-right orbit
             let moon_d = ((x - 0.785).powi(2) + (y - 0.285).powi(2)).sqrt() - 0.046;
             let moon_alpha = (0.5 - moon_d * SIZE as f32).clamp(0.0, 1.0);
             if moon_alpha > 0.0 {
@@ -175,4 +190,3 @@ fn build_brand_icon() -> Option<Icon> {
 
     Icon::from_rgba(rgba, SIZE, SIZE).ok()
 }
-

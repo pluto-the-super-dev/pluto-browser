@@ -1,5 +1,5 @@
 # ==============================================================================
-# Pluto Browser (rust-browser-adit) .gitignore
+# Pluto Browser .gitignore
 # Cross-platform coverage: Windows, Linux, and macOS
 # Note: Cargo.lock is intentionally tracked for reproducible application builds.
 # ==============================================================================
@@ -13,7 +13,7 @@
 # ------------------------------------------------------------------------------
 # Local browser profile, WebView caches & persisted user state
 # ------------------------------------------------------------------------------
-.browser-data/
+.pluto-browser-data/
 webview2/
 webview2_pluto/
 EBWebView/

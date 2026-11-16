@@ -1,43 +1,26 @@
-use crate::storage::Bookmark;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::net::Ipv4Addr;
 use url::Url;
 
 pub const NEW_TAB_URL: &str = "pluto://newtab";
 pub const WELCOME_URL: &str = "pluto://welcome";
+pub const GOOGLE_HOME_URL: &str = "https://www.google.com/";
 
+/// IPC messages sent from external web pages (via minimal init bridge) to Rust.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
-pub enum UiToRustMessage {
-    NewTab {
-        #[serde(default)]
-        url: Option<String>,
-    },
-    CloseTab {
-        id: u64,
-    },
+pub enum TabIpcMessage {
+    NewTab,
     CloseActiveTab,
-    SwitchTab {
-        id: u64,
-    },
     NextTab,
     PrevTab,
-    Navigate {
-        input: String,
-    },
     Back,
     Forward,
     Reload,
-    Stop,
-    Home,
-    ToggleBookmark,
-    OpenBookmark {
-        url: String,
-    },
-    RemoveBookmark {
-        url: String,
-    },
     FocusAddressBar,
+    ToggleCommandPalette,
+    ToggleBookmarksBar,
+    DuplicateActiveTab,
     OpenDevtools,
     ToggleInspector,
     ToggleFindBar,
@@ -45,18 +28,6 @@ pub enum UiToRustMessage {
     ZoomOut,
     ZoomReset,
     ReopenClosedTab,
-    DuplicateTab {
-        #[serde(default)]
-        id: Option<u64>,
-    },
-    PinTab {
-        id: u64,
-    },
-    CompleteOnboarding {
-        #[serde(default)]
-        destination: Option<String>,
-    },
-    OpenOnboarding,
     PageMeta {
         #[serde(default)]
         title: Option<String>,
@@ -65,37 +36,30 @@ pub enum UiToRustMessage {
         #[serde(default)]
         favicon: Option<String>,
     },
-    UiReady,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct TabUiInfo {
-    pub id: u64,
-    pub title: String,
-    pub url: String,
-    pub display_url: String,
-    pub favicon: Option<String>,
-    pub is_loading: bool,
-    pub active: bool,
-    pub pinned: bool,
-    pub zoom_percent: u32,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct RustToUiState {
-    pub tabs: Vec<TabUiInfo>,
-    pub active_tab_id: Option<u64>,
-    pub active_url: String,
-    pub is_loading: bool,
-    pub is_bookmarked: bool,
-    pub zoom_percent: u32,
-    pub can_reopen_closed: bool,
-    pub bookmarks: Vec<Bookmark>,
+    InspectorTelemetry {
+        #[serde(default)]
+        dom_nodes: u32,
+        #[serde(default)]
+        scripts: u32,
+        #[serde(default)]
+        stylesheets: u32,
+        #[serde(default)]
+        images: u32,
+        #[serde(default)]
+        dcl_ms: u32,
+        #[serde(default)]
+        load_ms: u32,
+        #[serde(default)]
+        local_keys: u32,
+        #[serde(default)]
+        session_keys: u32,
+        #[serde(default)]
+        origin: String,
+    },
 }
 
 #[derive(Debug)]
 pub enum UserEvent {
-    ChromeIpc(String),
     TabIpc { tab_id: u64, raw: String },
     TabTitleChanged { id: u64, title: String },
     TabLoadState { id: u64, is_loading: bool, url: String },
@@ -103,13 +67,12 @@ pub enum UserEvent {
 }
 
 /// Converts raw omnibox input into a navigable URL, adding a scheme when the input
-/// looks like a host/URL or falling back to a DuckDuckGo search query.
+/// looks like a host/URL or falling back to a Google Search query.
 pub fn resolve_omnibox_input(input: &str) -> String {
     let trimmed = input.trim();
     if trimmed.is_empty()
         || trimmed.eq_ignore_ascii_case("about:newtab")
         || trimmed.eq_ignore_ascii_case("about:blank")
-        || trimmed.eq_ignore_ascii_case("adit://newtab")
         || trimmed.eq_ignore_ascii_case(NEW_TAB_URL)
     {
         return NEW_TAB_URL.to_string();
@@ -117,8 +80,6 @@ pub fn resolve_omnibox_input(input: &str) -> String {
 
     if trimmed.eq_ignore_ascii_case(WELCOME_URL)
         || trimmed.eq_ignore_ascii_case("pluto://onboarding")
-        || trimmed.eq_ignore_ascii_case("adit://welcome")
-        || trimmed.eq_ignore_ascii_case("adit://onboarding")
         || trimmed.eq_ignore_ascii_case("about:welcome")
     {
         return WELCOME_URL.to_string();
@@ -130,7 +91,6 @@ pub fn resolve_omnibox_input(input: &str) -> String {
         || lower.starts_with("file://")
         || lower.starts_with("data:")
         || lower.starts_with("pluto://")
-        || lower.starts_with("adit://")
     {
         if let Ok(parsed) = Url::parse(trimmed) {
             return parsed.to_string();
@@ -150,9 +110,9 @@ pub fn resolve_omnibox_input(input: &str) -> String {
         }
     }
 
-    Url::parse_with_params("https://duckduckgo.com/", &[("q", trimmed)])
+    Url::parse_with_params("https://www.google.com/search", &[("q", trimmed)])
         .map(|u| u.to_string())
-        .unwrap_or_else(|_| "https://duckduckgo.com/".to_string())
+        .unwrap_or_else(|_| GOOGLE_HOME_URL.to_string())
 }
 
 fn split_host_port(authority: &str) -> &str {
@@ -207,7 +167,6 @@ mod tests {
         assert_eq!(resolve_omnibox_input(""), NEW_TAB_URL);
         assert_eq!(resolve_omnibox_input("   "), NEW_TAB_URL);
         assert_eq!(resolve_omnibox_input("pluto://newtab"), NEW_TAB_URL);
-        assert_eq!(resolve_omnibox_input("adit://newtab"), NEW_TAB_URL);
         assert_eq!(resolve_omnibox_input("about:newtab"), NEW_TAB_URL);
         assert_eq!(resolve_omnibox_input("about:blank"), NEW_TAB_URL);
     }
@@ -216,9 +175,7 @@ mod tests {
     fn resolves_welcome_aliases() {
         assert_eq!(resolve_omnibox_input("pluto://welcome"), WELCOME_URL);
         assert_eq!(resolve_omnibox_input("pluto://onboarding"), WELCOME_URL);
-        assert_eq!(resolve_omnibox_input("adit://welcome"), WELCOME_URL);
         assert_eq!(resolve_omnibox_input("about:welcome"), WELCOME_URL);
-        assert_eq!(resolve_omnibox_input("adit://onboarding"), WELCOME_URL);
     }
 
     #[test]
@@ -239,15 +196,14 @@ mod tests {
     }
 
     #[test]
-    fn resolves_search_queries_to_duckduckgo() {
+    fn resolves_search_queries_to_google() {
         assert_eq!(
             resolve_omnibox_input("rust programming language"),
-            "https://duckduckgo.com/?q=rust+programming+language"
+            "https://www.google.com/search?q=rust+programming+language"
         );
         assert_eq!(
             resolve_omnibox_input("hello"),
-            "https://duckduckgo.com/?q=hello"
+            "https://www.google.com/search?q=hello"
         );
     }
 }
-
