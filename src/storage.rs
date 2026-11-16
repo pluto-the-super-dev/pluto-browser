@@ -39,7 +39,8 @@ fn default_zoom_one() -> f64 {
 pub struct AppSettings {
     #[serde(default)]
     pub onboarding_completed: bool,
-    #[serde(default)]
+    /// Pure-Black Zed architectural dark grid is enabled by default.
+    #[serde(default = "default_true")]
     pub dark_mode: bool,
     #[serde(default)]
     pub workspace_note: String,
@@ -47,16 +48,26 @@ pub struct AppSettings {
     pub show_bookmarks_bar: bool,
     #[serde(default = "default_zoom_one")]
     pub ui_zoom: f64,
+    /// false = Top horizontal tab bar, true = Arc/Zed-style left vertical sidebar.
+    #[serde(default)]
+    pub sidebar_left: bool,
+    #[serde(default)]
+    pub sidebar_collapsed: bool,
+    #[serde(default = "default_true")]
+    pub adblock_enabled: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             onboarding_completed: false,
-            dark_mode: false,
+            dark_mode: true,
             workspace_note: String::new(),
             show_bookmarks_bar: true,
             ui_zoom: 1.0,
+            sidebar_left: false,
+            sidebar_collapsed: false,
+            adblock_enabled: true,
         }
     }
 }

@@ -4,6 +4,7 @@ use url::Url;
 
 pub const NEW_TAB_URL: &str = "pluto://newtab";
 pub const WELCOME_URL: &str = "pluto://welcome";
+pub const SETTINGS_URL: &str = "pluto://settings";
 pub const GOOGLE_HOME_URL: &str = "https://www.google.com/";
 
 /// IPC messages sent from external web pages (via minimal init bridge) to Rust.
@@ -18,9 +19,15 @@ pub enum TabIpcMessage {
     Forward,
     Reload,
     FocusAddressBar,
+    OpenSettings,
+    ToggleSidebarLayout,
+    ToggleSidebarCollapse,
     ToggleCommandPalette,
     ToggleBookmarksBar,
     DuplicateActiveTab,
+    ToggleReaderMode,
+    ToggleMute,
+    CopyMarkdown,
     OpenDevtools,
     ToggleInspector,
     ToggleFindBar,
@@ -83,6 +90,12 @@ pub fn resolve_omnibox_input(input: &str) -> String {
         || trimmed.eq_ignore_ascii_case("about:welcome")
     {
         return WELCOME_URL.to_string();
+    }
+
+    if trimmed.eq_ignore_ascii_case(SETTINGS_URL)
+        || trimmed.eq_ignore_ascii_case("about:settings")
+    {
+        return SETTINGS_URL.to_string();
     }
 
     let lower = trimmed.to_ascii_lowercase();
@@ -172,10 +185,12 @@ mod tests {
     }
 
     #[test]
-    fn resolves_welcome_aliases() {
+    fn resolves_welcome_and_settings_aliases() {
         assert_eq!(resolve_omnibox_input("pluto://welcome"), WELCOME_URL);
         assert_eq!(resolve_omnibox_input("pluto://onboarding"), WELCOME_URL);
         assert_eq!(resolve_omnibox_input("about:welcome"), WELCOME_URL);
+        assert_eq!(resolve_omnibox_input("pluto://settings"), SETTINGS_URL);
+        assert_eq!(resolve_omnibox_input("about:settings"), SETTINGS_URL);
     }
 
     #[test]

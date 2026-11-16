@@ -1,5 +1,7 @@
 use crate::clipboard;
-use crate::ipc::{resolve_omnibox_input, TabIpcMessage, UserEvent, NEW_TAB_URL, WELCOME_URL};
+use crate::ipc::{
+    resolve_omnibox_input, TabIpcMessage, UserEvent, NEW_TAB_URL, SETTINGS_URL, WELCOME_URL,
+};
 use crate::storage::{AppSettings, Bookmark, HistoryEntry, SessionData, StorageManager};
 use crate::tabs::{derive_title_from_url, display_url, TabManager};
 use crate::ui::{ActiveInput, NativeUi, PageTelemetry, RenderSnapshot, TabSnapshot, UiAction};
@@ -42,13 +44,12 @@ impl AppState {
             eprintln!("Warning: {err:#}");
             Vec::new()
         });
-        let mut settings = storage.load_settings().unwrap_or_else(|err| {
+        let settings = storage.load_settings().unwrap_or_else(|err| {
             eprintln!("Warning: {err:#}");
             AppSettings::default()
         });
 
-        let dark_initial = settings.dark_mode || matches!(window.theme(), Theme::Dark);
-        settings.dark_mode = dark_initial;
+        let dark_initial = settings.dark_mode;
 
         let sb_context = softbuffer::Context::new(Rc::clone(&window))
             .map_err(|e| anyhow!("Failed to create softbuffer context: {e}"))?;
@@ -69,13 +70,18 @@ impl AppState {
         let show_onboarding = !settings.onboarding_completed;
         let restored = storage.load_session().unwrap_or(None);
         let init_zoom = settings.ui_zoom;
+        let left_w = ui.left_sidebar_width(settings.sidebar_left, settings.sidebar_collapsed);
 
         if let Some(session) = restored.filter(|s| !s.tabs.is_empty()) {
             let active_idx = session.active_index.min(session.tabs.len() - 1);
             for (idx, url) in session.tabs.iter().enumerate() {
                 let resolved = resolve_omnibox_input(url);
                 let make_active = !show_onboarding && idx == active_idx;
-                let top_h = ui.top_chrome_height(settings.show_bookmarks_bar, &resolved);
+                let top_h = ui.top_chrome_height(
+                    settings.sidebar_left,
+                    settings.show_bookmarks_bar,
+                    &resolved,
+                );
                 let bot_h = ui.bottom_dock_height(&resolved);
                 tabs.create_tab(
                     window.as_ref(),
@@ -84,12 +90,17 @@ impl AppState {
                     &resolved,
                     make_active,
                     init_zoom,
+                    left_w,
                     top_h,
                     bot_h,
                 )?;
             }
             if show_onboarding && !tabs.tabs().iter().any(|t| t.url == WELCOME_URL) {
-                let top_h = ui.top_chrome_height(settings.show_bookmarks_bar, WELCOME_URL);
+                let top_h = ui.top_chrome_height(
+                    settings.sidebar_left,
+                    settings.show_bookmarks_bar,
+                    WELCOME_URL,
+                );
                 let bot_h = ui.bottom_dock_height(WELCOME_URL);
                 tabs.create_tab(
                     window.as_ref(),
@@ -98,6 +109,7 @@ impl AppState {
                     WELCOME_URL,
                     true,
                     init_zoom,
+                    left_w,
                     top_h,
                     bot_h,
                 )?;
@@ -108,13 +120,18 @@ impl AppState {
                     .find(|t| t.url == WELCOME_URL)
                     .map(|t| t.id)
                 {
-                    let top_h = ui.top_chrome_height(settings.show_bookmarks_bar, WELCOME_URL);
+                    let top_h = ui.top_chrome_height(
+                        settings.sidebar_left,
+                        settings.show_bookmarks_bar,
+                        WELCOME_URL,
+                    );
                     let bot_h = ui.bottom_dock_height(WELCOME_URL);
                     tabs.switch_to(
                         window.as_ref(),
                         &proxy,
                         &mut web_context,
                         welcome_id,
+                        left_w,
                         top_h,
                         bot_h,
                     );
@@ -126,7 +143,11 @@ impl AppState {
             } else {
                 NEW_TAB_URL
             };
-            let top_h = ui.top_chrome_height(settings.show_bookmarks_bar, start_url);
+            let top_h = ui.top_chrome_height(
+                settings.sidebar_left,
+                settings.show_bookmarks_bar,
+                start_url,
+            );
             let bot_h = ui.bottom_dock_height(start_url);
             tabs.create_tab(
                 window.as_ref(),
@@ -135,6 +156,7 @@ impl AppState {
                 start_url,
                 true,
                 init_zoom,
+                left_w,
                 top_h,
                 bot_h,
             )?;
@@ -188,6 +210,19 @@ impl AppState {
         display_url(self.active_url_str())
     }
 
+    fn left_offset(&self) -> f64 {
+        self.ui
+            .left_sidebar_width(self.settings.sidebar_left, self.settings.sidebar_collapsed)
+    }
+
+    fn top_height(&self, url: &str) -> f64 {
+        self.ui.top_chrome_height(
+            self.settings.sidebar_left,
+            self.settings.show_bookmarks_bar,
+            url,
+        )
+    }
+
     pub fn handle_resize(&mut self, new_size: Option<PhysicalSize<u32>>) {
         let size = new_size.unwrap_or_else(|| self.window.inner_size());
         let w = size.width.max(1);
@@ -204,12 +239,11 @@ impl AppState {
 
     fn update_webview_bounds(&self) {
         let active_url = self.active_url_str();
-        let top_h = self
-            .ui
-            .top_chrome_height(self.settings.show_bookmarks_bar, active_url);
+        let left_w = self.left_offset();
+        let top_h = self.top_height(active_url);
         let bot_h = self.ui.bottom_dock_height(active_url);
         self.tabs
-            .resize_active(&self.window, top_h, bot_h, self.ui.command_palette_open);
+            .resize_active(&self.window, left_w, top_h, bot_h, self.ui.command_palette_open);
     }
 
     pub fn handle_window_event(&mut self, event: &WindowEvent<'_>) {
@@ -349,6 +383,10 @@ impl AppState {
                         self.navigate_to(WELCOME_URL)?;
                         need_sync = true;
                     }
+                    UiAction::OpenSettings => {
+                        self.navigate_to(SETTINGS_URL)?;
+                        need_sync = true;
+                    }
                     UiAction::NewTab(url) => {
                         let target = url
                             .as_deref()
@@ -379,15 +417,15 @@ impl AppState {
                         };
                         if let Some(tid) = target_id {
                             let active_url = self.active_url_str().to_string();
-                            let top_h = self
-                                .ui
-                                .top_chrome_height(self.settings.show_bookmarks_bar, &active_url);
+                            let left_w = self.left_offset();
+                            let top_h = self.top_height(&active_url);
                             let bot_h = self.ui.bottom_dock_height(&active_url);
                             if let Some(url) = self.tabs.close_tab(
                                 &self.window,
                                 &self.proxy,
                                 &mut self.web_context,
                                 tid,
+                                left_w,
                                 top_h,
                                 bot_h,
                             )? {
@@ -403,15 +441,15 @@ impl AppState {
                             .get_tab(id)
                             .map(|t| t.url.clone())
                             .unwrap_or_default();
-                        let top_h = self
-                            .ui
-                            .top_chrome_height(self.settings.show_bookmarks_bar, &next_url);
+                        let left_w = self.left_offset();
+                        let top_h = self.top_height(&next_url);
                         let bot_h = self.ui.bottom_dock_height(&next_url);
                         if self.tabs.switch_to(
                             &self.window,
                             &self.proxy,
                             &mut self.web_context,
                             id,
+                            left_w,
                             top_h,
                             bot_h,
                         ) {
@@ -427,15 +465,15 @@ impl AppState {
                     }
                     UiAction::NextTab => {
                         let active_url = self.active_url_str().to_string();
-                        let top_h = self
-                            .ui
-                            .top_chrome_height(self.settings.show_bookmarks_bar, &active_url);
+                        let left_w = self.left_offset();
+                        let top_h = self.top_height(&active_url);
                         let bot_h = self.ui.bottom_dock_height(&active_url);
                         if self.tabs.switch_relative(
                             &self.window,
                             &self.proxy,
                             &mut self.web_context,
                             1,
+                            left_w,
                             top_h,
                             bot_h,
                         ) {
@@ -445,15 +483,15 @@ impl AppState {
                     }
                     UiAction::PrevTab => {
                         let active_url = self.active_url_str().to_string();
-                        let top_h = self
-                            .ui
-                            .top_chrome_height(self.settings.show_bookmarks_bar, &active_url);
+                        let left_w = self.left_offset();
+                        let top_h = self.top_height(&active_url);
                         let bot_h = self.ui.bottom_dock_height(&active_url);
                         if self.tabs.switch_relative(
                             &self.window,
                             &self.proxy,
                             &mut self.web_context,
                             -1,
+                            left_w,
                             top_h,
                             bot_h,
                         ) {
@@ -495,6 +533,15 @@ impl AppState {
                             need_draw = true;
                         }
                     }
+                    UiAction::CopyMarkdown => {
+                        if let Some(tab) = self.tabs.active_tab() {
+                            let md = format!("[{}]({})", tab.title, tab.url);
+                            if clipboard::set_clipboard_text(&md) {
+                                self.ui.show_toast("Copied as Markdown");
+                                need_draw = true;
+                            }
+                        }
+                    }
                     UiAction::ToggleBookmark => {
                         self.toggle_active_bookmark();
                         need_draw = true;
@@ -509,11 +556,69 @@ impl AppState {
                         self.update_webview_bounds();
                         need_draw = true;
                     }
+                    UiAction::ToggleSidebarLayout => {
+                        self.settings.sidebar_left = !self.settings.sidebar_left;
+                        self.settings.sidebar_collapsed = false;
+                        let _ = self.storage.save_settings(&self.settings);
+                        self.ui.show_toast(if self.settings.sidebar_left {
+                            "Sidebar: Left (Arc)"
+                        } else {
+                            "Sidebar: Top Strip"
+                        });
+                        self.update_webview_bounds();
+                        need_draw = true;
+                    }
+                    UiAction::ToggleSidebarCollapse => {
+                        if !self.settings.sidebar_left {
+                            self.settings.sidebar_left = true;
+                            self.settings.sidebar_collapsed = false;
+                        } else {
+                            self.settings.sidebar_collapsed = !self.settings.sidebar_collapsed;
+                        }
+                        let _ = self.storage.save_settings(&self.settings);
+                        self.update_webview_bounds();
+                        need_draw = true;
+                    }
+                    UiAction::ToggleShield => {
+                        self.settings.adblock_enabled = !self.settings.adblock_enabled;
+                        let _ = self.storage.save_settings(&self.settings);
+                        self.tabs.apply_shield_active(self.settings.adblock_enabled);
+                        self.ui.show_toast(if self.settings.adblock_enabled {
+                            "Pluto Shield enabled"
+                        } else {
+                            "Pluto Shield paused"
+                        });
+                        need_draw = true;
+                    }
+                    UiAction::ToggleReaderMode => {
+                        let active = self.tabs.toggle_reader_active(self.ui.dark_mode);
+                        self.ui.show_toast(if active {
+                            "Reader Mode ON"
+                        } else {
+                            "Reader Mode OFF"
+                        });
+                        need_draw = true;
+                    }
+                    UiAction::ToggleMute => {
+                        let muted = self.tabs.toggle_mute_active();
+                        self.ui.show_toast(if muted {
+                            "Tab audio muted"
+                        } else {
+                            "Tab audio unmuted"
+                        });
+                        need_draw = true;
+                    }
                     UiAction::ClearHistory => {
                         self.history.clear();
                         let _ = self.storage.save_history(&self.history);
                         self.ui.show_toast("History cleared");
                         need_draw = true;
+                    }
+                    UiAction::ResetOnboarding => {
+                        self.settings.onboarding_completed = false;
+                        let _ = self.storage.save_settings(&self.settings);
+                        self.navigate_to(WELCOME_URL)?;
+                        need_sync = true;
                     }
                     UiAction::ZoomIn => {
                         let z = self.tabs.zoom_active(0.1)?;
@@ -531,6 +636,13 @@ impl AppState {
                         self.tabs.zoom_reset_active()?;
                         self.settings.ui_zoom = 1.0;
                         let _ = self.storage.save_settings(&self.settings);
+                        need_draw = true;
+                    }
+                    UiAction::SetZoomPercent(pct) => {
+                        let z = self.tabs.set_zoom_active(pct as f64 / 100.0)?;
+                        self.settings.ui_zoom = z;
+                        let _ = self.storage.save_settings(&self.settings);
+                        self.ui.show_toast(format!("Zoom: {}%", (z * 100.0).round() as u32));
                         need_draw = true;
                     }
                     UiAction::ToggleTheme => {
@@ -662,6 +774,24 @@ impl AppState {
             TabIpcMessage::ReopenClosedTab => {
                 self.execute_ui_actions(vec![UiAction::ReopenClosedTab])
             }
+            TabIpcMessage::OpenSettings => {
+                self.execute_ui_actions(vec![UiAction::OpenSettings])
+            }
+            TabIpcMessage::ToggleSidebarLayout => {
+                self.execute_ui_actions(vec![UiAction::ToggleSidebarLayout])
+            }
+            TabIpcMessage::ToggleSidebarCollapse => {
+                self.execute_ui_actions(vec![UiAction::ToggleSidebarCollapse])
+            }
+            TabIpcMessage::ToggleReaderMode => {
+                self.execute_ui_actions(vec![UiAction::ToggleReaderMode])
+            }
+            TabIpcMessage::ToggleMute => {
+                self.execute_ui_actions(vec![UiAction::ToggleMute])
+            }
+            TabIpcMessage::CopyMarkdown => {
+                self.execute_ui_actions(vec![UiAction::CopyMarkdown])
+            }
             TabIpcMessage::FocusAddressBar => {
                 let disp = self.active_display_url();
                 let _ = self.window.set_focus();
@@ -755,15 +885,15 @@ impl AppState {
     }
 
     fn navigate_to(&mut self, url: &str) -> Result<()> {
-        let top_h = self
-            .ui
-            .top_chrome_height(self.settings.show_bookmarks_bar, url);
+        let left_w = self.left_offset();
+        let top_h = self.top_height(url);
         let bot_h = self.ui.bottom_dock_height(url);
         self.tabs.navigate_active(
             &self.window,
             &self.proxy,
             &mut self.web_context,
             url,
+            left_w,
             top_h,
             bot_h,
         )?;
@@ -773,9 +903,8 @@ impl AppState {
     }
 
     fn open_new_tab(&mut self, url: &str) -> Result<()> {
-        let top_h = self
-            .ui
-            .top_chrome_height(self.settings.show_bookmarks_bar, url);
+        let left_w = self.left_offset();
+        let top_h = self.top_height(url);
         let bot_h = self.ui.bottom_dock_height(url);
         let _id = self.tabs.create_tab(
             &self.window,
@@ -784,6 +913,7 @@ impl AppState {
             url,
             true,
             self.settings.ui_zoom,
+            left_w,
             top_h,
             bot_h,
         )?;
@@ -810,21 +940,27 @@ impl AppState {
     }
 
     fn on_tab_load_state(&mut self, id: u64, is_loading: bool, raw_url: String) {
-        let Some(tab) = self.tabs.get_tab_mut(id) else {
-            return;
-        };
-        let url_changed = !raw_url.is_empty() && raw_url != "about:blank" && tab.url != raw_url;
-        if !raw_url.is_empty() && raw_url != "about:blank" {
-            tab.url = raw_url;
+        let mut apply_prefs = false;
+        let mut url_changed = false;
+        if let Some(tab) = self.tabs.get_tab_mut(id) {
+            url_changed = !raw_url.is_empty() && raw_url != "about:blank" && tab.url != raw_url;
+            if !raw_url.is_empty() && raw_url != "about:blank" {
+                tab.url = raw_url;
+            }
+            tab.is_loading = is_loading;
+            if is_loading && (tab.title.is_empty() || url_changed) {
+                tab.title = derive_title_from_url(&tab.url);
+                tab.favicon = None;
+                tab.reader_active = false;
+            }
+            if !is_loading && !NativeUi::is_internal_page(&tab.url) {
+                StorageManager::record_history_entry(&mut self.history, &tab.title, &tab.url);
+                let _ = self.storage.save_history(&self.history);
+                apply_prefs = true;
+            }
         }
-        tab.is_loading = is_loading;
-        if is_loading && (tab.title.is_empty() || url_changed) {
-            tab.title = derive_title_from_url(&tab.url);
-            tab.favicon = None;
-        }
-        if !is_loading && !NativeUi::is_internal_page(&tab.url) {
-            StorageManager::record_history_entry(&mut self.history, &tab.title, &tab.url);
-            let _ = self.storage.save_history(&self.history);
+        if apply_prefs {
+            self.tabs.apply_tab_runtime_prefs(id, self.settings.adblock_enabled);
         }
         if url_changed {
             self.save_session();
@@ -907,6 +1043,8 @@ impl AppState {
         let active_id = self.tabs.active_tab_id();
         let active_url = self.active_url_str().to_string();
         let active_is_loading = self.tabs.active_tab().is_some_and(|t| t.is_loading);
+        let active_muted = self.tabs.active_tab().is_some_and(|t| t.is_muted);
+        let active_reader = self.tabs.active_tab().is_some_and(|t| t.reader_active);
         let zoom_percent = self
             .tabs
             .active_tab()
@@ -933,6 +1071,8 @@ impl AppState {
                 is_loading: t.is_loading,
                 active: Some(t.id) == active_id,
                 pinned: t.pinned,
+                is_muted: t.is_muted,
+                reader_active: t.reader_active,
             })
             .collect();
 
@@ -940,10 +1080,15 @@ impl AppState {
             tabs: &tabs_snap,
             active_url: &active_url,
             active_is_loading,
+            active_muted,
+            active_reader,
             is_bookmarked,
             zoom_percent,
             can_reopen_closed: !self.closed_tabs.is_empty(),
             show_bookmarks_bar: self.settings.show_bookmarks_bar,
+            sidebar_left: self.settings.sidebar_left,
+            sidebar_collapsed: self.settings.sidebar_collapsed,
+            adblock_enabled: self.settings.adblock_enabled,
             bookmarks: &self.bookmarks,
             history: &self.history,
             telemetry,
@@ -957,12 +1102,8 @@ impl AppState {
                 .active_tab()
                 .is_some_and(|t| t.webview.is_some());
 
-        let top_h_px = ((self
-            .ui
-            .top_chrome_height(self.settings.show_bookmarks_bar, &active_url)
-            * scale)
-            .ceil() as u32)
-            .clamp(1, h);
+        let left_w_px = ((self.left_offset() * scale).ceil() as u32).min(w);
+        let top_h_px = ((self.top_height(&active_url) * scale).ceil() as u32).clamp(1, h);
         let bot_h_logical = self.ui.bottom_dock_height(&active_url);
 
         if let Ok(mut buf) = self.surface.buffer_mut() {
@@ -973,25 +1114,42 @@ impl AppState {
             if !webview_visible {
                 let _ = buf.present();
             } else {
-                let mut damage = Vec::with_capacity(2);
+                let mut damage = Vec::with_capacity(3);
+                let bw_u32 = buf_w as u32;
+                let bh_u32 = buf_h as u32;
+                let left_clamped = left_w_px.min(bw_u32);
+
+                if left_clamped > 0 {
+                    if let (Some(nw), Some(nh)) = (NonZeroU32::new(left_clamped), NonZeroU32::new(bh_u32)) {
+                        damage.push(softbuffer::Rect {
+                            x: 0,
+                            y: 0,
+                            width: nw,
+                            height: nh,
+                        });
+                    }
+                }
+
+                let top_w = bw_u32.saturating_sub(left_clamped).max(1);
                 if let (Some(nw), Some(nh)) =
-                    (NonZeroU32::new(buf_w as u32), NonZeroU32::new(top_h_px.min(buf_h as u32)))
+                    (NonZeroU32::new(top_w), NonZeroU32::new(top_h_px.min(bh_u32)))
                 {
                     damage.push(softbuffer::Rect {
-                        x: 0,
+                        x: left_clamped,
                         y: 0,
                         width: nw,
                         height: nh,
                     });
                 }
+
                 if bot_h_logical > 0.0 {
-                    let bot_h_px = ((bot_h_logical * scale).ceil() as u32).clamp(1, buf_h as u32);
-                    let bot_y_px = (buf_h as u32).saturating_sub(bot_h_px);
+                    let bot_h_px = ((bot_h_logical * scale).ceil() as u32).clamp(1, bh_u32);
+                    let bot_y_px = bh_u32.saturating_sub(bot_h_px);
                     if let (Some(nw), Some(nh)) =
-                        (NonZeroU32::new(buf_w as u32), NonZeroU32::new(bot_h_px))
+                        (NonZeroU32::new(top_w), NonZeroU32::new(bot_h_px))
                     {
                         damage.push(softbuffer::Rect {
-                            x: 0,
+                            x: left_clamped,
                             y: bot_y_px,
                             width: nw,
                             height: nh,

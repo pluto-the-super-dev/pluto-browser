@@ -1,4 +1,4 @@
-use crate::ipc::{UserEvent, NEW_TAB_URL, WELCOME_URL};
+use crate::ipc::{UserEvent, NEW_TAB_URL, SETTINGS_URL, WELCOME_URL};
 use crate::ui::{NativeUi, PageTelemetry};
 use anyhow::{Context, Result};
 use tao::event_loop::EventLoopProxy;
@@ -12,8 +12,8 @@ use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBu
 pub const BROWSER_PERF_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate --autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --enable-zero-copy --disable-background-networking";
 
 /// Minimal DOM & shortcut bridge injected ONLY into external web pages so keyboard
-/// shortcuts, page titles, and Pluto Inspector telemetry work seamlessly.
-/// Contains zero HTML or CSS UI markup.
+/// shortcuts, page titles, Pluto Shield ad blocking, Reader Mode, audio mute, and
+/// Pluto Inspector telemetry work seamlessly. Contains zero browser UI markup.
 const TAB_INIT_SCRIPT: &str = r##"
 (function() {
   if (window.__plutoTabInit) return;
@@ -41,6 +41,30 @@ const TAB_INIT_SCRIPT: &str = r##"
       e.preventDefault();
       e.stopPropagation();
       post({ cmd: "toggle_bookmarks_bar" });
+    } else if (ctrl && !e.shiftKey && !e.altKey && key === "b") {
+      e.preventDefault();
+      e.stopPropagation();
+      post({ cmd: "toggle_sidebar_collapse" });
+    } else if (ctrl && e.shiftKey && key === "l") {
+      e.preventDefault();
+      e.stopPropagation();
+      post({ cmd: "toggle_sidebar_layout" });
+    } else if (ctrl && e.shiftKey && key === "y") {
+      e.preventDefault();
+      e.stopPropagation();
+      post({ cmd: "copy_markdown" });
+    } else if (ctrl && !e.shiftKey && !e.altKey && e.key === ",") {
+      e.preventDefault();
+      e.stopPropagation();
+      post({ cmd: "open_settings" });
+    } else if (e.altKey && !ctrl && !e.shiftKey && key === "r") {
+      e.preventDefault();
+      e.stopPropagation();
+      post({ cmd: "toggle_reader_mode" });
+    } else if (e.altKey && !ctrl && !e.shiftKey && key === "m") {
+      e.preventDefault();
+      e.stopPropagation();
+      post({ cmd: "toggle_mute" });
     } else if (ctrl && e.shiftKey && key === "k") {
       e.preventDefault();
       e.stopPropagation();
@@ -146,6 +170,109 @@ const TAB_INIT_SCRIPT: &str = r##"
     if (q) window.find(q, false, Boolean(backward), true);
   };
 
+  window.__plutoSetShield = function(enabled) {
+    try {
+      const id = "__pluto-shield-style";
+      let el = document.getElementById(id);
+      if (!enabled) {
+        if (el) el.remove();
+        return;
+      }
+      if (!el) {
+        el = document.createElement("style");
+        el.id = id;
+        el.textContent = [
+          'ins.adsbygoogle',
+          '[id*="google_ads"]',
+          '[id*="ad_banner"]',
+          '[class*="ad-banner"]',
+          '[class*="ad-slot"]',
+          '[class*="sponsored-"]',
+          '[data-ad]',
+          '[aria-label*="Sponsored"]',
+          '#onetrust-banner-sdk',
+          '.fc-consent-root'
+        ].join(",") + " { display: none !important; }";
+        (document.head || document.documentElement).appendChild(el);
+      }
+    } catch (_) {}
+  };
+
+  window.__plutoSetMuted = function(muted) {
+    try {
+      const list = document.querySelectorAll("video, audio");
+      for (let i = 0; i < list.length; i++) {
+        list[i].muted = Boolean(muted);
+      }
+    } catch (_) {}
+  };
+
+  window.__plutoToggleReader = function(active, isDark) {
+    try {
+      const id = "__pluto-reader-overlay";
+      const existing = document.getElementById(id);
+      if (!active) {
+        if (existing) existing.remove();
+        return;
+      }
+      if (existing) existing.remove();
+
+      const bg = isDark ? "#08080a" : "#ffffff";
+      const surface = isDark ? "#0f0f13" : "#f6f6f7";
+      const fg = isDark ? "#f4f4f5" : "#09090b";
+      const muted = isDark ? "#a1a1aa" : "#52525b";
+      const border = isDark ? "#2c2c35" : "#d4d4d8";
+
+      const overlay = document.createElement("div");
+      overlay.id = id;
+      overlay.style.cssText =
+        "position:fixed;inset:0;z-index:2147483647;overflow-y:auto;padding:48px 24px;" +
+        "background:" + bg + ";color:" + fg + ";font-family:system-ui,-apple-system,sans-serif;";
+
+      const box = document.createElement("div");
+      box.style.cssText =
+        "max-width:740px;margin:0 auto;border:1px solid " + border + ";background:" + surface + ";padding:36px 40px;";
+
+      const topBar = document.createElement("div");
+      topBar.style.cssText =
+        "display:flex;justify-content:space-between;align-items:center;padding-bottom:16px;" +
+        "margin-bottom:24px;border-bottom:1px solid " + border + ";font-size:12px;letter-spacing:1px;color:" + muted + ";";
+      const badge = document.createElement("span");
+      badge.textContent = "PLUTO READER MODE // " + (location.hostname || "ARTICLE");
+      topBar.appendChild(badge);
+      box.appendChild(topBar);
+
+      const h1 = document.createElement("h1");
+      h1.textContent = document.title || "Reader View";
+      h1.style.cssText = "font-size:32px;line-height:1.25;margin:0 0 24px 0;font-weight:700;";
+      box.appendChild(h1);
+
+      const source = document.querySelector("article") || document.querySelector("main") || document.body;
+      const nodes = source ? source.querySelectorAll("h2,h3,p,li,blockquote,pre") : [];
+      let count = 0;
+      for (let i = 0; i < nodes.length && count < 120; i++) {
+        const txt = (nodes[i].innerText || "").trim();
+        if (txt.length < 24 && nodes[i].tagName !== "H2" && nodes[i].tagName !== "H3") continue;
+        const p = document.createElement(nodes[i].tagName === "H2" ? "h2" : nodes[i].tagName === "H3" ? "h3" : "p");
+        p.textContent = txt;
+        p.style.cssText = nodes[i].tagName.startsWith("H")
+          ? "font-size:21px;line-height:1.35;margin:28px 0 12px 0;font-weight:600;"
+          : "font-size:17px;line-height:1.72;margin:0 0 16px 0;color:" + fg + ";";
+        box.appendChild(p);
+        count++;
+      }
+      if (count === 0) {
+        const empty = document.createElement("p");
+        empty.textContent = "No structured article paragraphs detected on this page.";
+        empty.style.cssText = "font-size:16px;color:" + muted + ";";
+        box.appendChild(empty);
+      }
+
+      overlay.appendChild(box);
+      document.documentElement.appendChild(overlay);
+    } catch (_) {}
+  };
+
   window.addEventListener("DOMContentLoaded", sendMeta);
   window.addEventListener("load", function() {
     sendMeta();
@@ -161,6 +288,8 @@ pub struct Tab {
     pub favicon: Option<String>,
     pub is_loading: bool,
     pub pinned: bool,
+    pub is_muted: bool,
+    pub reader_active: bool,
     pub zoom: f64,
     pub telemetry: Option<PageTelemetry>,
     pub webview: Option<WebView>,
@@ -226,6 +355,7 @@ impl TabManager {
         initial_url: &str,
         make_active: bool,
         initial_zoom: f64,
+        left_offset: f64,
         top_height: f64,
         bottom_height: f64,
     ) -> Result<u64> {
@@ -249,6 +379,7 @@ impl TabManager {
                 web_context,
                 &logical_url,
                 true,
+                left_offset,
                 top_height,
                 bottom_height,
             )?;
@@ -281,6 +412,8 @@ impl TabManager {
             favicon: None,
             is_loading,
             pinned: false,
+            is_muted: false,
+            reader_active: false,
             zoom,
             telemetry: None,
             webview,
@@ -289,12 +422,14 @@ impl TabManager {
         Ok(id)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn switch_to(
         &mut self,
         window: &Window,
         proxy: &EventLoopProxy<UserEvent>,
         web_context: &mut WebContext,
         id: u64,
+        left_offset: f64,
         top_height: f64,
         bottom_height: f64,
     ) -> bool {
@@ -313,7 +448,7 @@ impl TabManager {
             }
         }
 
-        let bounds = content_bounds(window, top_height, bottom_height);
+        let bounds = content_bounds(window, left_offset, top_height, bottom_height);
         let Some(idx) = self.tabs.iter().position(|t| t.id == id) else {
             return false;
         };
@@ -336,6 +471,7 @@ impl TabManager {
                     web_context,
                     &url_copy,
                     true,
+                    left_offset,
                     top_height,
                     bottom_height,
                 ) {
@@ -359,12 +495,14 @@ impl TabManager {
         true
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn switch_relative(
         &mut self,
         window: &Window,
         proxy: &EventLoopProxy<UserEvent>,
         web_context: &mut WebContext,
         delta: isize,
+        left_offset: f64,
         top_height: f64,
         bottom_height: f64,
     ) -> bool {
@@ -375,15 +513,25 @@ impl TabManager {
         let current = self.active_index() as isize;
         let next_idx = (current + delta).rem_euclid(len) as usize;
         let next_id = self.tabs[next_idx].id;
-        self.switch_to(window, proxy, web_context, next_id, top_height, bottom_height)
+        self.switch_to(
+            window,
+            proxy,
+            web_context,
+            next_id,
+            left_offset,
+            top_height,
+            bottom_height,
+        )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn close_tab(
         &mut self,
         window: &Window,
         proxy: &EventLoopProxy<UserEvent>,
         web_context: &mut WebContext,
         id: u64,
+        left_offset: f64,
         top_height: f64,
         bottom_height: f64,
     ) -> Result<Option<String>> {
@@ -408,6 +556,7 @@ impl TabManager {
                 NEW_TAB_URL,
                 true,
                 1.0,
+                left_offset,
                 top_height,
                 bottom_height,
             )?;
@@ -418,7 +567,15 @@ impl TabManager {
             let new_idx = idx.min(self.tabs.len() - 1);
             let next_id = self.tabs[new_idx].id;
             self.active_tab_id = None;
-            self.switch_to(window, proxy, web_context, next_id, top_height, bottom_height);
+            self.switch_to(
+                window,
+                proxy,
+                web_context,
+                next_id,
+                left_offset,
+                top_height,
+                bottom_height,
+            );
         }
 
         Ok(Some(closed_url))
@@ -440,6 +597,7 @@ impl TabManager {
         proxy: &EventLoopProxy<UserEvent>,
         web_context: &mut WebContext,
         url: &str,
+        left_offset: f64,
         top_height: f64,
         bottom_height: f64,
     ) -> Result<()> {
@@ -453,6 +611,7 @@ impl TabManager {
         self.tabs[idx].url = url.to_string();
         self.tabs[idx].title = derive_title_from_url(url);
         self.tabs[idx].telemetry = None;
+        self.tabs[idx].reader_active = false;
 
         if NativeUi::is_internal_page(url) {
             self.tabs[idx].favicon = None;
@@ -467,7 +626,7 @@ impl TabManager {
         }
 
         self.tabs[idx].is_loading = true;
-        let bounds = content_bounds(window, top_height, bottom_height);
+        let bounds = content_bounds(window, left_offset, top_height, bottom_height);
 
         if let Some(wv) = &self.tabs[idx].webview {
             #[cfg(target_os = "windows")]
@@ -485,6 +644,7 @@ impl TabManager {
                 web_context,
                 url,
                 true,
+                left_offset,
                 top_height,
                 bottom_height,
             )?;
@@ -596,6 +756,18 @@ impl TabManager {
         Ok(1.0)
     }
 
+    pub fn set_zoom_active(&mut self, factor: f64) -> Result<f64> {
+        if let Some(tab) = self.active_tab_mut() {
+            let rounded = clamp_zoom(factor);
+            tab.zoom = rounded;
+            if let Some(wv) = &tab.webview {
+                wv.zoom(rounded).context("Failed to set zoom factor")?;
+            }
+            return Ok(rounded);
+        }
+        Ok(clamp_zoom(factor))
+    }
+
     pub fn zoom_reset_active(&mut self) -> Result<()> {
         if let Some(tab) = self.active_tab_mut() {
             tab.zoom = 1.0;
@@ -606,14 +778,76 @@ impl TabManager {
         Ok(())
     }
 
+    pub fn toggle_reader_active(&mut self, dark_mode: bool) -> bool {
+        let Some(tab) = self.active_tab_mut() else {
+            return false;
+        };
+        if NativeUi::is_internal_page(&tab.url) {
+            return false;
+        }
+        tab.reader_active = !tab.reader_active;
+        let active = tab.reader_active;
+        if let Some(wv) = &tab.webview {
+            let script = format!(
+                "window.__plutoToggleReader && window.__plutoToggleReader({active}, {dark_mode});"
+            );
+            let _ = wv.evaluate_script(&script);
+        }
+        active
+    }
+
+    pub fn toggle_mute_active(&mut self) -> bool {
+        let Some(tab) = self.active_tab_mut() else {
+            return false;
+        };
+        if NativeUi::is_internal_page(&tab.url) {
+            return false;
+        }
+        tab.is_muted = !tab.is_muted;
+        let muted = tab.is_muted;
+        if let Some(wv) = &tab.webview {
+            let script = format!("window.__plutoSetMuted && window.__plutoSetMuted({muted});");
+            let _ = wv.evaluate_script(&script);
+        }
+        muted
+    }
+
+    pub fn apply_shield_active(&self, enabled: bool) {
+        if let Some(tab) = self.active_tab() {
+            if let Some(wv) = &tab.webview {
+                if !NativeUi::is_internal_page(&tab.url) {
+                    let script = format!(
+                        "window.__plutoSetShield && window.__plutoSetShield({enabled});"
+                    );
+                    let _ = wv.evaluate_script(&script);
+                }
+            }
+        }
+    }
+
+    pub fn apply_tab_runtime_prefs(&self, id: u64, shield_enabled: bool) {
+        if let Some(tab) = self.get_tab(id) {
+            if let Some(wv) = &tab.webview {
+                if !NativeUi::is_internal_page(&tab.url) {
+                    let script = format!(
+                        "window.__plutoSetShield && window.__plutoSetShield({shield_enabled}); window.__plutoSetMuted && window.__plutoSetMuted({});",
+                        tab.is_muted
+                    );
+                    let _ = wv.evaluate_script(&script);
+                }
+            }
+        }
+    }
+
     pub fn resize_active(
         &self,
         window: &Window,
+        left_offset: f64,
         top_height: f64,
         bottom_height: f64,
         force_hide: bool,
     ) {
-        let bounds = content_bounds(window, top_height, bottom_height);
+        let bounds = content_bounds(window, left_offset, top_height, bottom_height);
         if let Some(tab) = self.active_tab() {
             if let Some(wv) = &tab.webview {
                 let visible = !force_hide && !NativeUi::is_internal_page(&tab.url);
@@ -637,10 +871,11 @@ fn build_tab_webview(
     web_context: &mut WebContext,
     url: &str,
     visible: bool,
+    left_offset: f64,
     top_height: f64,
     bottom_height: f64,
 ) -> Result<WebView> {
-    let bounds = content_bounds(window, top_height, bottom_height);
+    let bounds = content_bounds(window, left_offset, top_height, bottom_height);
     let ipc_proxy = proxy.clone();
     let title_proxy = proxy.clone();
     let load_proxy = proxy.clone();
@@ -686,13 +921,19 @@ fn build_tab_webview(
         .with_context(|| format!("Failed to create webview for tab {id}"))
 }
 
-pub fn content_bounds(window: &Window, top_height: f64, bottom_height: f64) -> Rect {
+pub fn content_bounds(
+    window: &Window,
+    left_offset: f64,
+    top_height: f64,
+    bottom_height: f64,
+) -> Rect {
     let scale = window.scale_factor();
     let inner = window.inner_size().to_logical::<f64>(scale);
+    let width = (inner.width - left_offset).max(100.0);
     let height = (inner.height - top_height - bottom_height).max(40.0);
     Rect {
-        position: LogicalPosition::new(0.0, top_height).into(),
-        size: LogicalSize::new(inner.width.max(100.0), height).into(),
+        position: LogicalPosition::new(left_offset, top_height).into(),
+        size: LogicalSize::new(width, height).into(),
     }
 }
 
@@ -711,6 +952,9 @@ pub fn derive_title_from_url(raw_url: &str) -> String {
     if raw_url == WELCOME_URL {
         return "Welcome".to_string();
     }
+    if raw_url == SETTINGS_URL {
+        return "Settings".to_string();
+    }
     url::Url::parse(raw_url)
         .ok()
         .and_then(|u| u.host_str().map(|h| h.to_string()))
@@ -727,5 +971,12 @@ mod tests {
         assert_eq!(clamp_zoom(0.6), 0.6);
         assert_eq!(clamp_zoom(1.1 + 0.1), 1.2);
         assert_eq!(clamp_zoom(2.5), 2.0);
+    }
+
+    #[test]
+    fn derives_internal_page_titles() {
+        assert_eq!(derive_title_from_url(NEW_TAB_URL), "New Tab");
+        assert_eq!(derive_title_from_url(WELCOME_URL), "Welcome");
+        assert_eq!(derive_title_from_url(SETTINGS_URL), "Settings");
     }
 }

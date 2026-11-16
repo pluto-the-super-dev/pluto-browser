@@ -21,19 +21,19 @@ No HTML/CSS/JS chrome files, no Electron wrapper, and no Node.js build pipeline.
 
 ## Features
 
-- **100% Native Rust Chrome & Pages**:
-  - **Direct Zero-Copy Framebuffer Rendering (`src/ui/canvas.rs`)**: Writes anti-aliased SDF rounded rectangles, 3D-shaded spheres, tilted 3D elliptical orbital rings, crisp vector toolbar icons, and glyph-cached OpenType system fonts (`ab_glyph`) straight into the `softbuffer` pixel buffer.
-  - **Damage-Rect Partial Presentation**: On `pluto://welcome` and `pluto://newtab`, Pluto Browser presents the entire window from Rust with **zero child WebView processes**. When browsing an external website (`https://...`), `softbuffer::Buffer::present_with_damage` blits only the top bar (and bottom inspector dock if open), preventing any flicker over the child WebView viewport.
-- **Planet Pluto Orbital Showcase (`pluto://welcome`)**:
-  - Real-time ~60 FPS Planet Pluto & Charon orbital centerpiece with Tombaugh Regio heart basin, twinkling parallax starfield, Notion-inspired Light/Dark toggle, interactive workspace tabs (`Workspace Board`, `Rust Engine`, `Shortcuts`), 4-tier benchmark comparison, and startup destination picker.
-- **Native New Tab Workspace (`pluto://newtab`)**:
-  - Live Google Search/URL box, category-filterable Quick Links (`All`, `Engineering`, `Reference`), clickable Saved Bookmarks cards with remove buttons, **Recent History** list (`history.json`) with one-click clear, and an editable persistent Workspace Notes scratchpad stored in `settings.json`.
-- **Tabbed Workflow, Bookmarks Bar & Command Palette (`Ctrl+K`)**:
-  - Open (`Ctrl+T`), close (`Ctrl+W` / middle-click), duplicate (`Ctrl+Shift+K`), switch (`Ctrl+Tab` / `Ctrl+Shift+Tab`), pin (double-click or right-click tab), and reopen closed tabs (`Ctrl+Shift+T`).
-  - Toggleable **Bookmarks Bar (`Ctrl+Shift+B`)**, quick URL copy button & native OS clipboard `Ctrl+C` / `Ctrl+V` support (`src/clipboard.rs`).
-  - Automatic URL vs. **Google Search** query detection (`https://www.google.com/search?q=...`), HTTPS/Pluto/HTTP protocol badge, interactive `- / 100% / +` zoom controls (`Ctrl+=` / `Ctrl+-` / `Ctrl+0` / `Ctrl+Scroll`) working across both internal Rust views and external tabs, and floating **Command Palette (`Ctrl+K` / `Ctrl+P`)**.
-- **Pluto Native Inspector (`Ctrl+Shift+D`) & Find Bar (`Ctrl+F`)**:
-  - Pure Rust bottom dock showing real frame render times (`ms`), active WebView isolation status, live DOM/Timing telemetry from external pages, plus `F12` / `Ctrl+Shift+I` for native OS WebView DevTools.
+- **Zed Pure Black & White 0px Architectural Grid UI (100% Native Rust)**:
+  - **Sharp Box-Grid Aesthetics (`0px` corners + `1px` crisp hairlines)**: Pure `#08080a` Obsidian Black canvas and `#ffffff` Stark Paper light grid mode, scaled-up typography (`FONT_SCALE = 1.38`), and subtle architectural crosshair corners rendered directly into the `softbuffer` pixel buffer via `src/ui/canvas.rs`.
+  - **Damage-Rect Partial Presentation**: On internal Rust views (`pluto://welcome`, `pluto://newtab`, `pluto://settings`), Pluto Browser renders the entire window from Rust with **zero child WebView processes**. When browsing external pages, `softbuffer::Buffer::present_with_damage` blits the Left Sidebar, Top Chrome Strip, and Bottom Inspector Dock cleanly with zero flicker over the child WebView viewport.
+- **Customizable Navigation Layout & Native Settings (`pluto://settings`, `Ctrl+,`)**:
+  - Switch effortlessly between **Top Horizontal Strip** (`46px` tabs + `56px` toolbar) and **Arc / Zed Left Sidebar** (`256px` vertical sidebar with Favorites 3x2 grid, vertical tabs list, collapsible with `Ctrl+B`, and single-row `56px` omnibox header).
+  - Native UI & page zoom presets (`80%` to `175%`), grid theme selector, Pluto Shield toggle, history eraser, and onboarding reset right inside `pluto://settings`.
+- **Orbital Telemetry Showcase (`pluto://welcome`)**:
+  - Asymmetric split hero grid, live cursor-tracking 60 FPS **Planet Pluto Orbital Telemetry Radar**, 4-card quantitative benchmark strip (`14 MB` shell RAM, `< 1.8 ms` frame time, `42 ms` cold startup, `0 lines` HTML/JS chrome), 5-column browser comparison table vs Chrome/Arc/Brave, interactive capability tabs, and startup destination picker.
+- **Pluto Shield, Reader Mode & Power Productivity Tools**:
+  - **Pluto Shield**: Native DOM suppression for common ad slots, sponsored cards, and cookie consent banners on external websites.
+  - **Reader Mode (`Alt+R`)**: Extracts article headings and paragraphs into a distraction-free monochrome editorial view.
+  - **Audio Mute (`Alt+M`)**: One-click muting for `<video>`/`<audio>` elements with tab badge indicator.
+  - **Copy as Markdown (`Ctrl+Shift+Y`)**: Copies `[Title](URL)` directly to the OS clipboard alongside Command Palette (`Ctrl+K`), Bookmarks Bar (`Ctrl+Shift+B`), Find Bar (`Ctrl+F`), and Pluto Native Inspector (`Ctrl+Shift+D`).
 - **Windows Performance & Hibernation Tuning**:
   - GPU rasterization & zero-copy flags (`BROWSER_PERF_ARGS`) and automatic `MemoryUsageLevel::Low` / `MemoryUsageLevel::Normal` memory trimming when switching tabs or visiting internal routes.
 
@@ -149,12 +149,18 @@ Managed by `StorageManager` in [src/storage.rs](src/storage.rs) via `ProjectDirs
 
 | Windows / Linux | macOS | Action |
 |---|---|---|
+| `Ctrl+,` | `Cmd+,` | Open Browser Settings (`pluto://settings`) |
+| `Ctrl+Shift+L` | `Cmd+Shift+L` | Toggle Top Horizontal Strip vs. Arc Left Sidebar |
+| `Ctrl+B` | `Cmd+B` | Collapse / expand Left Sidebar |
 | `Ctrl+T` | `Cmd+T` | Open a new tab (`pluto://newtab`) |
 | `Ctrl+W` | `Cmd+W` | Close the active tab |
 | `Ctrl+Shift+K` | `Cmd+Shift+K` | Duplicate the active tab |
 | `Ctrl+Shift+T` | `Cmd+Shift+T` | Reopen the most recently closed tab |
 | `Ctrl+K` / `Ctrl+P` | `Cmd+K` / `Cmd+P` | Open the Command Palette |
 | `Ctrl+Shift+B` | `Cmd+Shift+B` | Toggle the Bookmarks Bar |
+| `Alt+R` | `Alt+R` | Toggle Reader Mode |
+| `Alt+M` | `Alt+M` | Mute / unmute active tab audio |
+| `Ctrl+Shift+Y` | `Cmd+Shift+Y` | Copy page link as Markdown `[Title](URL)` |
 | `Ctrl+L` | `Cmd+L` | Focus and select the omnibox |
 | `Ctrl+R` / `F5` | `Cmd+R` / `F5` | Reload the active tab |
 | `Ctrl+Tab` | `Ctrl+Tab` | Switch to the next tab |
@@ -181,13 +187,13 @@ pluto-browser/
     ├── main.rs          # tao EventLoop, adaptive ~60 FPS / idle loop, procedural Pluto RGBA icon
     ├── app.rs           # AppState coordinator, softbuffer Surface + present_with_damage, IPC/UI dispatch
     ├── clipboard.rs     # Zero-dependency native OS clipboard (Win32 UTF-16 + macOS/Linux tools)
-    ├── tabs.rs          # TabManager owning lazy Option<WebView>, zoom clamping, memory trimming & bridge
-    ├── ipc.rs           # Typed serde messages (TabIpcMessage) & Google/URL omnibox resolver
-    ├── storage.rs       # BOM-tolerant JSON persistence (bookmarks, history, session, settings)
+    ├── tabs.rs          # TabManager owning lazy Option<WebView>, Shield/Reader/Mute runtime bridge
+    ├── ipc.rs           # Typed serde messages (TabIpcMessage) & Google/URL/Settings omnibox resolver
+    ├── storage.rs       # BOM-tolerant JSON persistence (bookmarks, history, session, layout settings)
     └── ui/
-        ├── mod.rs       # 100% Pure Rust NativeUi: Chrome, Find Bar, Inspector, Welcome & New Tab views
-        ├── canvas.rs    # Zero-copy pixel Canvas, cached ab_glyph fonts, SDF vector icons & Pluto hero system
-        └── theme.rs     # Notion-inspired Light & Dark ThemePalette color tokens
+        ├── mod.rs       # 100% Pure Rust NativeUi: Chrome, Sidebar, Settings, Welcome, New Tab & Palette
+        ├── canvas.rs    # Zero-copy pixel Canvas, cached ab_glyph fonts, sharp 0px boxes & vector icons
+        └── theme.rs     # Zed Obsidian Pure Black & Stark Paper Grid ThemePalette tokens
 ```
 
 ---

@@ -3,7 +3,7 @@ use ab_glyph::{point, Font, FontArc, PxScale, ScaleFont};
 use std::collections::HashMap;
 use std::fs;
 
-const FONT_SCALE: f32 = 1.26;
+const FONT_SCALE: f32 = 1.38;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FontStyle {
@@ -307,26 +307,6 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    pub fn fill_vertical_gradient(&mut self, x: f32, y: f32, w: f32, h: f32, top: Color, bottom: Color) {
-        let clip = self.clip();
-        let x0 = ((x * self.scale).floor() as i32).max(clip.x0);
-        let y0 = ((y * self.scale).floor() as i32).max(clip.y0);
-        let x1 = (((x + w) * self.scale).ceil() as i32).min(clip.x1);
-        let y1 = (((y + h) * self.scale).ceil() as i32).min(clip.y1);
-        if x0 >= x1 || y0 >= y1 {
-            return;
-        }
-        let span = ((y1 - y0) as f32).max(1.0);
-        for py in y0..y1 {
-            let t = (py - y0) as f32 / span;
-            let row_col = top.lerp(bottom, t);
-            let val = row_col.to_u32_opaque();
-            let row_start = (py as usize) * self.phys_w + (x0 as usize);
-            let row_end = row_start + (x1 - x0) as usize;
-            self.buf[row_start..row_end].fill(val);
-        }
-    }
-
     pub fn fill_radial_glow(&mut self, cx: f32, cy: f32, radius: f32, color: Color) {
         if radius <= 0.0 || color.a == 0 {
             return;
@@ -355,139 +335,31 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    pub fn fill_rounded_rect(&mut self, x: f32, y: f32, w: f32, h: f32, radius: f32, color: Color) {
-        if w <= 0.0 || h <= 0.0 || color.a == 0 {
-            return;
-        }
-        let rad = radius.min(w * 0.5).min(h * 0.5);
-        if rad <= 0.5 {
-            self.fill_rect(x, y, w, h, color);
-            return;
-        }
-
-        let clip = self.clip();
-        let px0 = x * self.scale;
-        let py0 = y * self.scale;
-        let pw = w * self.scale;
-        let ph = h * self.scale;
-        let prad = rad * self.scale;
-
-        let x0 = ((px0 - 1.0).floor() as i32).max(clip.x0);
-        let y0 = ((py0 - 1.0).floor() as i32).max(clip.y0);
-        let x1 = ((px0 + pw + 1.0).ceil() as i32).min(clip.x1);
-        let y1 = ((py0 + ph + 1.0).ceil() as i32).min(clip.y1);
-        if x0 >= x1 || y0 >= y1 {
-            return;
-        }
-
-        let hx = pw * 0.5;
-        let hy = ph * 0.5;
-        let mcx = px0 + hx;
-        let mcy = py0 + hy;
-
-        let inner_x0 = ((px0 + prad + 1.0).ceil() as i32).max(x0).min(x1);
-        let inner_x1 = ((px0 + pw - prad - 1.0).floor() as i32).min(x1).max(inner_x0);
-        let inner_y0 = ((py0 + 1.5).ceil() as i32).max(y0);
-        let inner_y1 = ((py0 + ph - 1.5).floor() as i32).min(y1);
-        let solid_x0 = ((px0 + 1.5).ceil() as i32).max(x0).min(x1);
-        let solid_x1 = ((px0 + pw - 1.5).floor() as i32).min(x1).max(solid_x0);
-        let opaque_val = color.to_u32_opaque();
-
-        for py in y0..y1 {
-            let dy = ((py as f32 + 0.5) - mcy).abs() - (hy - prad);
-            if color.a == 255 && py >= inner_y0 && py < inner_y1 {
-                let (span_a, span_b) = if dy <= -0.5 {
-                    (solid_x0, solid_x1)
-                } else {
-                    (inner_x0, inner_x1)
-                };
-                if span_a < span_b {
-                    let row_off = (py as usize) * self.phys_w;
-                    self.buf[row_off + span_a as usize..row_off + span_b as usize].fill(opaque_val);
-                }
-                for px in x0..span_a {
-                    let dx = ((px as f32 + 0.5) - mcx).abs() - (hx - prad);
-                    let dist = dx.max(0.0).hypot(dy.max(0.0)) + dx.max(dy).min(0.0) - prad;
-                    let cov = (0.5 - dist).clamp(0.0, 1.0);
-                    if cov > 0.0 {
-                        self.blend_phys_px(px, py, color, cov);
-                    }
-                }
-                for px in span_b..x1 {
-                    let dx = ((px as f32 + 0.5) - mcx).abs() - (hx - prad);
-                    let dist = dx.max(0.0).hypot(dy.max(0.0)) + dx.max(dy).min(0.0) - prad;
-                    let cov = (0.5 - dist).clamp(0.0, 1.0);
-                    if cov > 0.0 {
-                        self.blend_phys_px(px, py, color, cov);
-                    }
-                }
-                continue;
-            }
-            for px in x0..x1 {
-                let dx = ((px as f32 + 0.5) - mcx).abs() - (hx - prad);
-                let dist = dx.max(0.0).hypot(dy.max(0.0)) + dx.max(dy).min(0.0) - prad;
-                let cov = (0.5 - dist).clamp(0.0, 1.0);
-                if cov > 0.0 {
-                    self.blend_phys_px(px, py, color, cov);
-                }
-            }
-        }
+    /// Zero-rounded sharp rectangular fill matching the Zed brutalist box grid.
+    pub fn fill_rounded_rect(&mut self, x: f32, y: f32, w: f32, h: f32, _radius: f32, color: Color) {
+        self.fill_rect(x, y, w, h, color);
     }
 
+    /// Crisp 0px sharp architectural rectangular border (4 SIMD horizontal/vertical edges).
     pub fn stroke_rounded_rect(
         &mut self,
         x: f32,
         y: f32,
         w: f32,
         h: f32,
-        radius: f32,
+        _radius: f32,
         thickness: f32,
         color: Color,
     ) {
         if w <= 0.0 || h <= 0.0 || thickness <= 0.0 || color.a == 0 {
             return;
         }
-        let rad = radius.min(w * 0.5).min(h * 0.5);
-        let clip = self.clip();
-        let px0 = x * self.scale;
-        let py0 = y * self.scale;
-        let pw = w * self.scale;
-        let ph = h * self.scale;
-        let prad = rad * self.scale;
-        let pthick = (thickness * self.scale).max(1.0);
-
-        let x0 = ((px0 - 1.5).floor() as i32).max(clip.x0);
-        let y0 = ((py0 - 1.5).floor() as i32).max(clip.y0);
-        let x1 = ((px0 + pw + 1.5).ceil() as i32).min(clip.x1);
-        let y1 = ((py0 + ph + 1.5).ceil() as i32).min(clip.y1);
-        if x0 >= x1 || y0 >= y1 {
-            return;
-        }
-
-        let hx = pw * 0.5;
-        let hy = ph * 0.5;
-        let mcx = px0 + hx;
-        let mcy = py0 + hy;
-
-        let skip_x0 = ((px0 + prad + pthick + 1.0).ceil() as i32).max(x0);
-        let skip_x1 = ((px0 + pw - prad - pthick - 1.0).floor() as i32).min(x1);
-        let skip_y0 = ((py0 + pthick + 1.5).ceil() as i32).max(y0);
-        let skip_y1 = ((py0 + ph - pthick - 1.5).floor() as i32).min(y1);
-
-        for py in y0..y1 {
-            let dy = ((py as f32 + 0.5) - mcy).abs() - (hy - prad);
-            for px in x0..x1 {
-                if px >= skip_x0 && px < skip_x1 && py >= skip_y0 && py < skip_y1 {
-                    continue;
-                }
-                let dx = ((px as f32 + 0.5) - mcx).abs() - (hx - prad);
-                let outer_dist = dx.max(0.0).hypot(dy.max(0.0)) + dx.max(dy).min(0.0) - prad;
-                let border_dist = (outer_dist + pthick * 0.5).abs() - pthick * 0.5;
-                let cov = (0.5 - border_dist).clamp(0.0, 1.0);
-                if cov > 0.0 {
-                    self.blend_phys_px(px, py, color, cov);
-                }
-            }
+        let t = thickness.max(1.0);
+        self.fill_rect(x, y, w, t, color);
+        self.fill_rect(x, (y + h - t).max(y), w, t, color);
+        if h > t * 2.0 {
+            self.fill_rect(x, y + t, t, h - t * 2.0, color);
+            self.fill_rect((x + w - t).max(x), y + t, t, h - t * 2.0, color);
         }
     }
 
@@ -719,15 +591,19 @@ impl<'a> Canvas<'a> {
     // -------------------------------------------------------------------------
 
     pub fn draw_pluto_logo(&mut self, x: f32, y: f32, size: f32, hover_t: f32) {
-        self.fill_rounded_rect(x, y, size, size, size * 0.24, Color::rgb(0x0a, 0x15, 0x30));
+        self.fill_rect(x, y, size, size, Color::rgb(0x04, 0x04, 0x05));
         self.stroke_rounded_rect(
             x,
             y,
             size,
             size,
-            size * 0.24,
+            0.0,
             1.0,
-            Color::rgba(0x9d, 0x8d, 0xf7, 110),
+            if hover_t > 0.5 {
+                Color::rgb(0xff, 0xff, 0xff)
+            } else {
+                Color::rgba(0xe4, 0xe4, 0xe7, 150)
+            },
         );
 
         let cx = x + size * 0.5;
@@ -1073,15 +949,56 @@ impl<'a> Canvas<'a> {
         self.draw_line_aa(cx + 0.5, cy + 3.5, cx + 4.8, cy + 3.5, 1.6, color);
     }
 
+    pub fn draw_icon_sidebar(&mut self, cx: f32, cy: f32, color: Color) {
+        self.stroke_rounded_rect(cx - 6.0, cy - 5.0, 12.0, 10.0, 0.0, 1.3, color);
+        self.draw_line_aa(cx - 2.0, cy - 5.0, cx - 2.0, cy + 5.0, 1.3, color);
+    }
+
+    pub fn draw_icon_settings(&mut self, cx: f32, cy: f32, color: Color) {
+        self.draw_line_aa(cx - 5.5, cy - 3.5, cx + 5.5, cy - 3.5, 1.35, color);
+        self.fill_rect(cx - 3.0, cy - 5.2, 3.2, 3.4, color);
+        self.draw_line_aa(cx - 5.5, cy, cx + 5.5, cy, 1.35, color);
+        self.fill_rect(cx + 1.0, cy - 1.7, 3.2, 3.4, color);
+        self.draw_line_aa(cx - 5.5, cy + 3.5, cx + 5.5, cy + 3.5, 1.35, color);
+        self.fill_rect(cx - 2.0, cy + 1.8, 3.2, 3.4, color);
+    }
+
+    pub fn draw_icon_shield(&mut self, cx: f32, cy: f32, active: bool, color: Color) {
+        self.draw_line_aa(cx, cy - 5.5, cx + 4.8, cy - 3.5, 1.4, color);
+        self.draw_line_aa(cx + 4.8, cy - 3.5, cx + 3.6, cy + 2.2, 1.4, color);
+        self.draw_line_aa(cx + 3.6, cy + 2.2, cx, cy + 5.5, 1.4, color);
+        self.draw_line_aa(cx, cy + 5.5, cx - 3.6, cy + 2.2, 1.4, color);
+        self.draw_line_aa(cx - 3.6, cy + 2.2, cx - 4.8, cy - 3.5, 1.4, color);
+        self.draw_line_aa(cx - 4.8, cy - 3.5, cx, cy - 5.5, 1.4, color);
+        if active {
+            self.draw_line_aa(cx - 2.0, cy, cx - 0.4, cy + 1.8, 1.4, color);
+            self.draw_line_aa(cx - 0.4, cy + 1.8, cx + 2.4, cy - 1.6, 1.4, color);
+        }
+    }
+
+    pub fn draw_icon_reader(&mut self, cx: f32, cy: f32, color: Color) {
+        self.draw_line_aa(cx - 5.0, cy - 3.5, cx + 5.0, cy - 3.5, 1.45, color);
+        self.draw_line_aa(cx - 5.0, cy, cx + 5.0, cy, 1.45, color);
+        self.draw_line_aa(cx - 5.0, cy + 3.5, cx + 2.5, cy + 3.5, 1.45, color);
+    }
+
+    pub fn draw_icon_volume(&mut self, cx: f32, cy: f32, muted: bool, color: Color) {
+        self.fill_rect(cx - 5.0, cy - 2.0, 2.5, 4.0, color);
+        self.draw_line_aa(cx - 2.5, cy - 2.0, cx + 1.2, cy - 4.8, 1.4, color);
+        self.draw_line_aa(cx + 1.2, cy - 4.8, cx + 1.2, cy + 4.8, 1.4, color);
+        self.draw_line_aa(cx + 1.2, cy + 4.8, cx - 2.5, cy + 2.0, 1.4, color);
+        if muted {
+            self.draw_line_aa(cx + 2.8, cy - 3.0, cx + 5.6, cy + 3.0, 1.4, color);
+            self.draw_line_aa(cx + 5.6, cy - 3.0, cx + 2.8, cy + 3.0, 1.4, color);
+        } else {
+            self.draw_line_aa(cx + 3.5, cy - 2.5, cx + 4.5, cy, 1.3, color);
+            self.draw_line_aa(cx + 4.5, cy, cx + 3.5, cy + 2.5, 1.3, color);
+        }
+    }
+
     pub fn draw_icon_close(&mut self, cx: f32, cy: f32, color: Color) {
         self.draw_line_aa(cx - 3.2, cy - 3.2, cx + 3.2, cy + 3.2, 1.5, color);
         self.draw_line_aa(cx + 3.2, cy - 3.2, cx - 3.2, cy + 3.2, 1.5, color);
-    }
-
-    pub fn draw_icon_globe(&mut self, cx: f32, cy: f32, color: Color) {
-        self.stroke_circle(cx, cy, 5.2, 1.35, color);
-        self.draw_line_aa(cx - 5.0, cy, cx + 5.0, cy, 1.2, color);
-        self.draw_line_aa(cx, cy - 5.0, cx, cy + 5.0, 1.2, color);
     }
 
     pub fn draw_icon_theme(&mut self, cx: f32, cy: f32, dark: bool, color: Color) {
@@ -1101,21 +1018,6 @@ impl<'a> Canvas<'a> {
         } else {
             self.stroke_circle(cx, cy, 4.6, 1.45, color);
             self.fill_circle(cx - 1.5, cy + 0.5, 2.2, color);
-        }
-    }
-
-    pub fn draw_spinner(&mut self, cx: f32, cy: f32, r: f32, time_sec: f32, track: Color, active: Color) {
-        self.stroke_circle(cx, cy, r, 1.8, track);
-        let start = time_sec * 6.5;
-        let mut prev = None;
-        for step in 0..=8 {
-            let a = start + (step as f32 / 8.0) * 1.9;
-            let px = cx + a.cos() * r;
-            let py = cy + a.sin() * r;
-            if let Some((lx, ly)) = prev {
-                self.draw_line_aa(lx, ly, px, py, 2.0, active);
-            }
-            prev = Some((px, py));
         }
     }
 }

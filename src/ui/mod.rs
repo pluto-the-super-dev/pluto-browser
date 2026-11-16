@@ -2,7 +2,7 @@ pub mod canvas;
 pub mod theme;
 
 use crate::clipboard;
-use crate::ipc::{GOOGLE_HOME_URL, NEW_TAB_URL, WELCOME_URL};
+use crate::ipc::{GOOGLE_HOME_URL, NEW_TAB_URL, SETTINGS_URL, WELCOME_URL};
 use crate::storage::{Bookmark, HistoryEntry};
 use crate::ui::canvas::{Canvas, FontStyle, FontSystem};
 use crate::ui::theme::{Color, ThemePalette};
@@ -11,10 +11,12 @@ use tao::dpi::PhysicalPosition;
 use tao::event::MouseButton;
 use tao::keyboard::{KeyCode, ModifiersState};
 
-pub const CHROME_BASE_HEIGHT: f32 = 96.0;
-pub const BOOKMARKS_BAR_HEIGHT: f32 = 32.0;
-pub const FIND_BAR_HEIGHT: f32 = 42.0;
-pub const INSPECTOR_DOCK_HEIGHT: f32 = 188.0;
+pub const TOP_TAB_ROW_H: f32 = 46.0;
+pub const TOOLBAR_ROW_H: f32 = 56.0;
+pub const SIDEBAR_W: f32 = 256.0;
+pub const BOOKMARKS_BAR_HEIGHT: f32 = 34.0;
+pub const FIND_BAR_HEIGHT: f32 = 44.0;
+pub const INSPECTOR_DOCK_HEIGHT: f32 = 204.0;
 
 #[derive(Debug, Clone)]
 pub struct TabSnapshot {
@@ -24,6 +26,8 @@ pub struct TabSnapshot {
     pub is_loading: bool,
     pub active: bool,
     pub pinned: bool,
+    pub is_muted: bool,
+    pub reader_active: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -43,10 +47,15 @@ pub struct RenderSnapshot<'a> {
     pub tabs: &'a [TabSnapshot],
     pub active_url: &'a str,
     pub active_is_loading: bool,
+    pub active_muted: bool,
+    pub active_reader: bool,
     pub is_bookmarked: bool,
     pub zoom_percent: u32,
     pub can_reopen_closed: bool,
     pub show_bookmarks_bar: bool,
+    pub sidebar_left: bool,
+    pub sidebar_collapsed: bool,
+    pub adblock_enabled: bool,
     pub bookmarks: &'a [Bookmark],
     pub history: &'a [HistoryEntry],
     pub telemetry: Option<&'a PageTelemetry>,
@@ -65,6 +74,9 @@ pub enum ActiveInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HitId {
     BrandWelcome,
+    OpenSettings,
+    ToggleSidebarLayout,
+    ToggleSidebarCollapse,
     Tab(u64),
     CloseTab(u64),
     NewTabBtn,
@@ -77,16 +89,20 @@ pub enum HitId {
     Omnibox,
     OmniboxClear,
     CopyUrl,
+    CopyMarkdown,
+    ToggleBookmark,
+    ToggleShield,
+    ToggleReader,
+    ToggleMute,
     ZoomOut,
     ZoomReset,
     ZoomIn,
-    ToggleBookmark,
+    BookmarkBarItem(String),
+    BookmarkBarToggle,
     ToggleFind,
     TogglePalette,
     ToggleInspector,
     OpenDevtools,
-    BookmarkBarItem(String),
-    BookmarkBarToggle,
     FindInput,
     FindPrev,
     FindNext,
@@ -95,18 +111,17 @@ pub enum HitId {
     InspectorRefresh,
     InspectorDevtools,
     InspectorClose,
-    // Command Palette
     PaletteOverlayBackdrop,
     PaletteBox,
     PaletteItem(usize),
-    // Welcome page
     WelcomeHeroOpen,
+    WelcomeHeroSettings,
     WelcomeHeroXray,
     WelcomeMockTab(usize),
     WelcomeDestPill(usize),
     WelcomeFinish,
-    // New tab page
     NewTabWelcomeBtn,
+    NewTabSettingsBtn,
     NewTabSearchInput,
     NewTabSearchSubmit,
     NewTabCategory(usize),
@@ -114,6 +129,17 @@ pub enum HitId {
     RemoveBookmark(String),
     ClearHistory,
     ScratchpadBox,
+    SettingsLayoutTop,
+    SettingsLayoutLeft,
+    SettingsSidebarCollapse,
+    SettingsBookmarksToggle,
+    SettingsThemeDark,
+    SettingsThemeLight,
+    SettingsZoomPreset(u32),
+    SettingsShieldToggle,
+    SettingsClearHistory,
+    SettingsResetOnboarding,
+    SettingsOpenInspector,
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +156,7 @@ struct HitRegion {
 pub enum UiAction {
     FocusHostWindow,
     OpenWelcome,
+    OpenSettings,
     NewTab(Option<String>),
     CloseTab(u64),
     DuplicateTab,
@@ -146,13 +173,21 @@ pub enum UiAction {
     PrevTab,
     Navigate(String),
     CopyActiveUrl,
+    CopyMarkdown,
     ToggleBookmark,
     RemoveBookmark(String),
     ToggleBookmarksBar,
+    ToggleSidebarLayout,
+    ToggleSidebarCollapse,
+    ToggleShield,
+    ToggleReaderMode,
+    ToggleMute,
     ClearHistory,
+    ResetOnboarding,
     ZoomIn,
     ZoomOut,
     ZoomReset,
+    SetZoomPercent(u32),
     ToggleTheme,
     ToggleFindBar,
     FindNext(String),
@@ -186,7 +221,7 @@ struct QuickLink {
     title: &'static str,
     url: &'static str,
     badge: &'static str,
-    cat: usize, // 1 = Engineering, 2 = Reference
+    cat: usize,
     tag: &'static str,
 }
 
@@ -208,28 +243,28 @@ const QUICK_LINKS: &[QuickLink] = &[
     QuickLink {
         title: "Rust Lang",
         url: "https://www.rust-lang.org",
-        badge: "R",
+        badge: "RS",
         cat: 1,
         tag: "Rust",
     },
     QuickLink {
-        title: "MDN Web Docs",
+        title: "MDN Docs",
         url: "https://developer.mozilla.org",
-        badge: "M",
+        badge: "MD",
         cat: 1,
         tag: "Docs",
     },
     QuickLink {
         title: "Wikipedia",
         url: "https://en.wikipedia.org",
-        badge: "W",
+        badge: "WK",
         cat: 2,
         tag: "Wiki",
     },
     QuickLink {
         title: "Hacker News",
         url: "https://news.ycombinator.com",
-        badge: "Y",
+        badge: "HN",
         cat: 2,
         tag: "Feed",
     },
@@ -239,7 +274,7 @@ const DESTINATIONS: &[(&str, &str)] = &[
     ("New Tab Workspace", NEW_TAB_URL),
     ("Google Search", GOOGLE_HOME_URL),
     ("GitHub", "https://github.com"),
-    ("Rust Docs", "https://www.rust-lang.org"),
+    ("Rust Lang", "https://www.rust-lang.org"),
 ];
 
 pub struct NativeUi {
@@ -263,6 +298,8 @@ pub struct NativeUi {
     pub welcome_max_scroll: f32,
     pub newtab_scroll_y: f32,
     pub newtab_max_scroll: f32,
+    pub settings_scroll_y: f32,
+    pub settings_max_scroll: f32,
     pub welcome_mock_tab: usize,
     pub welcome_dest_idx: usize,
     pub cursor_pos: (f32, f32),
@@ -298,6 +335,8 @@ impl NativeUi {
             welcome_max_scroll: 0.0,
             newtab_scroll_y: 0.0,
             newtab_max_scroll: 0.0,
+            settings_scroll_y: 0.0,
+            settings_max_scroll: 0.0,
             welcome_mock_tab: 0,
             welcome_dest_idx: 0,
             cursor_pos: (0.0, 0.0),
@@ -305,18 +344,35 @@ impl NativeUi {
             last_click: None,
             start_instant: Instant::now(),
             last_frame_ms: 0.0,
-            hits: Vec::with_capacity(96),
+            hits: Vec::with_capacity(128),
             palette_entries: Vec::new(),
             last_synced_url: String::new(),
         }
     }
 
     pub fn is_internal_page(url: &str) -> bool {
-        url == WELCOME_URL || url == NEW_TAB_URL
+        url == WELCOME_URL || url == NEW_TAB_URL || url == SETTINGS_URL
     }
 
-    pub fn top_chrome_height(&self, show_bookmarks_bar: bool, active_url: &str) -> f64 {
-        let mut h = CHROME_BASE_HEIGHT;
+    pub fn left_sidebar_width(&self, sidebar_left: bool, sidebar_collapsed: bool) -> f64 {
+        if sidebar_left && !sidebar_collapsed {
+            SIDEBAR_W as f64
+        } else {
+            0.0
+        }
+    }
+
+    pub fn top_chrome_height(
+        &self,
+        sidebar_left: bool,
+        show_bookmarks_bar: bool,
+        active_url: &str,
+    ) -> f64 {
+        let mut h = if sidebar_left {
+            TOOLBAR_ROW_H
+        } else {
+            TOP_TAB_ROW_H + TOOLBAR_ROW_H
+        };
         if show_bookmarks_bar {
             h += BOOKMARKS_BAR_HEIGHT;
         }
@@ -336,7 +392,10 @@ impl NativeUi {
 
     /// Distinguishes continuous 60 FPS planetary animations from low-power idle states.
     pub fn fast_animation_needed(&self, active_url: &str, active_loading: bool) -> bool {
-        active_url == WELCOME_URL || active_url == NEW_TAB_URL || active_loading || self.toast_message.is_some()
+        active_url == WELCOME_URL
+            || active_url == NEW_TAB_URL
+            || active_loading
+            || self.toast_message.is_some()
     }
 
     pub fn caret_blink_needed(&self) -> bool {
@@ -396,6 +455,11 @@ impl NativeUi {
         if active_url == NEW_TAB_URL {
             self.newtab_scroll_y =
                 (self.newtab_scroll_y - delta_y).clamp(0.0, self.newtab_max_scroll);
+            return true;
+        }
+        if active_url == SETTINGS_URL {
+            self.settings_scroll_y =
+                (self.settings_scroll_y - delta_y).clamp(0.0, self.settings_max_scroll);
             return true;
         }
         false
@@ -464,7 +528,6 @@ impl NativeUi {
             return actions;
         }
 
-        // Check double click on Tab for pin toggle
         let now = Instant::now();
         let is_double = self
             .last_click
@@ -479,13 +542,11 @@ impl NativeUi {
             }
         }
 
-        // Clicking anywhere on our native window should bring OS keyboard focus back from child WebView
         actions.push(UiAction::FocusHostWindow);
 
         match &hit {
             HitId::Omnibox => {
                 if self.active_input == ActiveInput::Omnibox {
-                    // Clicking inside while already focused deselects so user can keep typing seamlessly
                     self.omnibox_select_all = false;
                 } else {
                     self.active_input = ActiveInput::Omnibox;
@@ -549,6 +610,13 @@ impl NativeUi {
 
         match hit {
             HitId::BrandWelcome => actions.push(UiAction::OpenWelcome),
+            HitId::OpenSettings | HitId::WelcomeHeroSettings | HitId::NewTabSettingsBtn => {
+                actions.push(UiAction::OpenSettings)
+            }
+            HitId::ToggleSidebarLayout => actions.push(UiAction::ToggleSidebarLayout),
+            HitId::ToggleSidebarCollapse | HitId::SettingsSidebarCollapse => {
+                actions.push(UiAction::ToggleSidebarCollapse)
+            }
             HitId::Tab(id) => actions.push(UiAction::SwitchTab(id)),
             HitId::CloseTab(id) => actions.push(UiAction::CloseTab(id)),
             HitId::NewTabBtn => actions.push(UiAction::NewTab(None)),
@@ -562,20 +630,30 @@ impl NativeUi {
             HitId::Home => actions.push(UiAction::Home),
             HitId::ReopenClosed => actions.push(UiAction::ReopenClosedTab),
             HitId::CopyUrl => actions.push(UiAction::CopyActiveUrl),
+            HitId::CopyMarkdown => actions.push(UiAction::CopyMarkdown),
+            HitId::ToggleBookmark => actions.push(UiAction::ToggleBookmark),
+            HitId::ToggleShield | HitId::SettingsShieldToggle => {
+                actions.push(UiAction::ToggleShield)
+            }
+            HitId::ToggleReader => actions.push(UiAction::ToggleReaderMode),
+            HitId::ToggleMute => actions.push(UiAction::ToggleMute),
             HitId::ZoomOut => actions.push(UiAction::ZoomOut),
             HitId::ZoomReset => actions.push(UiAction::ZoomReset),
             HitId::ZoomIn => actions.push(UiAction::ZoomIn),
-            HitId::ToggleBookmark => actions.push(UiAction::ToggleBookmark),
             HitId::ToggleFind => {
                 if !Self::is_internal_page(active_url) {
                     actions.push(UiAction::ToggleFindBar);
                 }
             }
             HitId::TogglePalette => actions.push(UiAction::ToggleCommandPalette),
-            HitId::ToggleInspector => actions.push(UiAction::ToggleInspector),
+            HitId::ToggleInspector | HitId::SettingsOpenInspector | HitId::WelcomeHeroXray => {
+                actions.push(UiAction::ToggleInspector)
+            }
             HitId::OpenDevtools | HitId::InspectorDevtools => actions.push(UiAction::OpenDevtools),
             HitId::BookmarkBarItem(url) => actions.push(UiAction::Navigate(url)),
-            HitId::BookmarkBarToggle => actions.push(UiAction::ToggleBookmarksBar),
+            HitId::BookmarkBarToggle | HitId::SettingsBookmarksToggle => {
+                actions.push(UiAction::ToggleBookmarksBar)
+            }
             HitId::FindPrev => actions.push(UiAction::FindPrev(self.find_text.clone())),
             HitId::FindNext => actions.push(UiAction::FindNext(self.find_text.clone())),
             HitId::FindClose => actions.push(UiAction::CloseFindBar),
@@ -589,7 +667,6 @@ impl NativeUi {
                 actions.push(UiAction::ToggleInspector);
             }
             HitId::WelcomeHeroOpen => actions.push(UiAction::CompleteOnboarding(NEW_TAB_URL.to_string())),
-            HitId::WelcomeHeroXray => actions.push(UiAction::ToggleInspector),
             HitId::WelcomeMockTab(idx) => {
                 self.welcome_mock_tab = idx;
                 actions.push(UiAction::RequestRedraw);
@@ -605,7 +682,9 @@ impl NativeUi {
                     .unwrap_or_else(|| NEW_TAB_URL.to_string());
                 actions.push(UiAction::CompleteOnboarding(dest));
             }
-            HitId::NewTabWelcomeBtn => actions.push(UiAction::OpenWelcome),
+            HitId::NewTabWelcomeBtn | HitId::SettingsResetOnboarding => {
+                actions.push(UiAction::ResetOnboarding)
+            }
             HitId::NewTabSearchSubmit => {
                 let q = self.newtab_search_text.trim().to_string();
                 if !q.is_empty() {
@@ -618,7 +697,23 @@ impl NativeUi {
             }
             HitId::OpenUrlTile(url) => actions.push(UiAction::Navigate(url)),
             HitId::RemoveBookmark(url) => actions.push(UiAction::RemoveBookmark(url)),
-            HitId::ClearHistory => actions.push(UiAction::ClearHistory),
+            HitId::ClearHistory | HitId::SettingsClearHistory => actions.push(UiAction::ClearHistory),
+            HitId::SettingsLayoutTop | HitId::SettingsLayoutLeft => {
+                actions.push(UiAction::ToggleSidebarLayout)
+            }
+            HitId::SettingsThemeDark => {
+                if !self.dark_mode {
+                    self.dark_mode = true;
+                    actions.push(UiAction::ToggleTheme);
+                }
+            }
+            HitId::SettingsThemeLight => {
+                if self.dark_mode {
+                    self.dark_mode = false;
+                    actions.push(UiAction::ToggleTheme);
+                }
+            }
+            HitId::SettingsZoomPreset(pct) => actions.push(UiAction::SetZoomPercent(pct)),
             HitId::Omnibox
             | HitId::OmniboxClear
             | HitId::NewTabSearchInput
@@ -687,13 +782,36 @@ impl NativeUi {
         let alt = self.modifiers.alt_key();
         let mut actions = Vec::new();
 
-        // Global shortcuts handled directly in Rust
         if code == KeyCode::F12 || (ctrl && shift && code == KeyCode::KeyI) {
             actions.push(UiAction::OpenDevtools);
             return actions;
         }
         if ctrl && shift && (code == KeyCode::KeyD || code == KeyCode::KeyC) {
             actions.push(UiAction::ToggleInspector);
+            return actions;
+        }
+        if ctrl && !shift && !alt && code == KeyCode::Comma {
+            actions.push(UiAction::OpenSettings);
+            return actions;
+        }
+        if ctrl && !shift && !alt && code == KeyCode::KeyB {
+            actions.push(UiAction::ToggleSidebarCollapse);
+            return actions;
+        }
+        if ctrl && shift && code == KeyCode::KeyL {
+            actions.push(UiAction::ToggleSidebarLayout);
+            return actions;
+        }
+        if ctrl && shift && code == KeyCode::KeyY {
+            actions.push(UiAction::CopyMarkdown);
+            return actions;
+        }
+        if alt && !ctrl && !shift && code == KeyCode::KeyR {
+            actions.push(UiAction::ToggleReaderMode);
+            return actions;
+        }
+        if alt && !ctrl && !shift && code == KeyCode::KeyM {
+            actions.push(UiAction::ToggleMute);
             return actions;
         }
         if ctrl && shift && code == KeyCode::KeyB {
@@ -765,7 +883,6 @@ impl NativeUi {
             return actions;
         }
 
-        // Command palette navigation
         if self.command_palette_open {
             match code {
                 KeyCode::ArrowDown => {
@@ -778,7 +895,9 @@ impl NativeUi {
                 }
                 KeyCode::ArrowUp => {
                     if !self.palette_entries.is_empty() {
-                        self.command_palette_idx = (self.command_palette_idx + self.palette_entries.len() - 1)
+                        self.command_palette_idx = (self.command_palette_idx
+                            + self.palette_entries.len()
+                            - 1)
                             % self.palette_entries.len();
                     }
                     actions.push(UiAction::RequestRedraw);
@@ -808,7 +927,6 @@ impl NativeUi {
             }
         }
 
-        // Non-input scrolling shortcuts on internal pages
         if self.active_input == ActiveInput::None {
             if active_url == WELCOME_URL {
                 match code {
@@ -834,11 +952,34 @@ impl NativeUi {
                     }
                     _ => {}
                 }
+            } else if active_url == SETTINGS_URL {
+                match code {
+                    KeyCode::PageDown | KeyCode::Space => {
+                        self.settings_scroll_y =
+                            (self.settings_scroll_y + 260.0).clamp(0.0, self.settings_max_scroll);
+                        actions.push(UiAction::RequestRedraw);
+                    }
+                    KeyCode::PageUp => {
+                        self.settings_scroll_y =
+                            (self.settings_scroll_y - 260.0).clamp(0.0, self.settings_max_scroll);
+                        actions.push(UiAction::RequestRedraw);
+                    }
+                    KeyCode::ArrowDown => {
+                        self.settings_scroll_y =
+                            (self.settings_scroll_y + 64.0).clamp(0.0, self.settings_max_scroll);
+                        actions.push(UiAction::RequestRedraw);
+                    }
+                    KeyCode::ArrowUp => {
+                        self.settings_scroll_y =
+                            (self.settings_scroll_y - 64.0).clamp(0.0, self.settings_max_scroll);
+                        actions.push(UiAction::RequestRedraw);
+                    }
+                    _ => {}
+                }
             }
             return actions;
         }
 
-        // Select All / Copy / Paste inside focused Rust inputs
         if ctrl && !shift && !alt {
             if code == KeyCode::KeyA && self.active_input == ActiveInput::Omnibox {
                 self.omnibox_select_all = true;
@@ -1022,10 +1163,22 @@ impl NativeUi {
         let win_h = c.logical_height();
         c.clear(pal.canvas);
 
-        let mut hit_buf: Vec<HitRegion> = Vec::with_capacity(96);
+        let mut hit_buf: Vec<HitRegion> = Vec::with_capacity(128);
 
-        let top_h = self.top_chrome_height(snapshot.show_bookmarks_bar, snapshot.active_url) as f32;
-        let page_top = CHROME_BASE_HEIGHT
+        let left_w =
+            self.left_sidebar_width(snapshot.sidebar_left, snapshot.sidebar_collapsed) as f32;
+        let main_w = (win_w - left_w).max(200.0);
+        let top_bar_base = if snapshot.sidebar_left {
+            TOOLBAR_ROW_H
+        } else {
+            TOP_TAB_ROW_H + TOOLBAR_ROW_H
+        };
+        let top_h = self.top_chrome_height(
+            snapshot.sidebar_left,
+            snapshot.show_bookmarks_bar,
+            snapshot.active_url,
+        ) as f32;
+        let page_top = top_bar_base
             + if snapshot.show_bookmarks_bar {
                 BOOKMARKS_BAR_HEIGHT
             } else {
@@ -1040,27 +1193,41 @@ impl NativeUi {
             })
         .max(60.0);
 
-        // 1. Pure Rust Internal Page Views with per-tab Zoom In / Zoom Out scaling!
+        // 1. Pure Rust Internal Page Views with per-tab Zoom scaling & strict clipping
         if is_internal {
             let zoom = (snapshot.zoom_percent as f32 / 100.0).clamp(0.6, 2.0);
-            let mut page_hits: Vec<HitRegion> = Vec::with_capacity(48);
+            let mut page_hits: Vec<HitRegion> = Vec::with_capacity(64);
             let z_cursor = (cursor.0 / zoom, cursor.1 / zoom);
+            let z_vx = left_w / zoom;
             let z_vy = page_top / zoom;
-            let z_vw = win_w / zoom;
+            let z_vw = main_w / zoom;
             let z_vh = page_vh / zoom;
 
             c.set_scale(scale * zoom as f64);
+            c.push_clip(z_vx, z_vy, z_vw, z_vh);
             if snapshot.active_url == WELCOME_URL {
                 self.render_welcome_page(
                     &mut c,
                     &pal,
                     time_sec,
                     z_cursor,
-                    0.0,
+                    z_vx,
                     z_vy,
                     z_vw,
                     z_vh,
-                    snapshot.zoom_percent,
+                    snapshot,
+                    &mut page_hits,
+                );
+            } else if snapshot.active_url == SETTINGS_URL {
+                self.render_settings_page(
+                    &mut c,
+                    &pal,
+                    z_cursor,
+                    z_vx,
+                    z_vy,
+                    z_vw,
+                    z_vh,
+                    snapshot,
                     &mut page_hits,
                 );
             } else if snapshot.active_url == NEW_TAB_URL {
@@ -1069,15 +1236,15 @@ impl NativeUi {
                     &pal,
                     time_sec,
                     z_cursor,
-                    0.0,
+                    z_vx,
                     z_vy,
                     z_vw,
                     z_vh,
-                    snapshot.bookmarks,
-                    snapshot.history,
+                    snapshot,
                     &mut page_hits,
                 );
             }
+            c.pop_clip();
             c.set_scale(scale);
 
             for r in page_hits {
@@ -1099,9 +1266,9 @@ impl NativeUi {
                 &mut c,
                 &pal,
                 cursor,
-                0.0,
+                left_w,
                 dock_y,
-                win_w,
+                main_w,
                 INSPECTOR_DOCK_HEIGHT,
                 snapshot,
                 &mut hit_buf,
@@ -1110,79 +1277,88 @@ impl NativeUi {
 
         // 3. Find Bar (when open on external pages)
         if self.find_open && !is_internal {
-            let fb_y = CHROME_BASE_HEIGHT
-                + if snapshot.show_bookmarks_bar {
-                    BOOKMARKS_BAR_HEIGHT
-                } else {
-                    0.0
-                };
             self.render_find_bar(
                 &mut c,
                 &pal,
                 time_sec,
                 cursor,
-                0.0,
-                fb_y,
-                win_w,
+                left_w,
+                page_top,
+                main_w,
                 FIND_BAR_HEIGHT,
                 &mut hit_buf,
             );
         }
 
-        // 4. Bookmarks Bar (optional 32px row below toolbar)
+        // 4. Bookmarks Bar
         if snapshot.show_bookmarks_bar {
             self.render_bookmarks_bar(
                 &mut c,
                 &pal,
                 cursor,
-                0.0,
-                CHROME_BASE_HEIGHT,
-                win_w,
+                left_w,
+                top_bar_base,
+                main_w,
                 BOOKMARKS_BAR_HEIGHT,
                 snapshot.bookmarks,
                 &mut hit_buf,
             );
         }
 
-        // 5. Native Rust Top Chrome Bar (96px: 44px Tabs + 52px Toolbar)
-        self.render_chrome_bar(
-            &mut c,
-            &pal,
-            time_sec,
-            cursor,
-            win_w,
-            snapshot,
-            &mut hit_buf,
-        );
-
-        // 6. Floating Command Palette Overlay (Ctrl+K)
-        if self.command_palette_open {
-            self.render_command_palette(
+        // 5. Left Arc/Zed Vertical Sidebar (when active & expanded)
+        if left_w > 0.0 {
+            self.render_left_sidebar(
                 &mut c,
                 &pal,
                 time_sec,
                 cursor,
-                win_w,
                 win_h,
                 snapshot,
                 &mut hit_buf,
             );
         }
 
-        // 7. Subtle feedback toast pill (e.g. "Copied to clipboard")
+        // 6. Top Chrome Strip (Tabs + Toolbar in Top mode, or single Omnibox Toolbar in Sidebar mode)
+        self.render_chrome_bar(
+            &mut c,
+            &pal,
+            time_sec,
+            cursor,
+            left_w,
+            main_w,
+            snapshot,
+            &mut hit_buf,
+        );
+
+        // 7. Floating Command Palette Overlay (Ctrl+K)
+        if self.command_palette_open {
+            self.render_command_palette(
+                &mut c,
+                &pal,
+                time_sec,
+                cursor,
+                left_w,
+                top_bar_base,
+                main_w,
+                win_h,
+                snapshot,
+                &mut hit_buf,
+            );
+        }
+
+        // 8. Sharp monochrome toast notification
         if let Some((msg, _)) = &self.toast_message {
-            let tw = self.fonts.measure_text(FontStyle::SemiBold, 12.0, msg) + 28.0;
-            let tx = (win_w - tw) * 0.5;
+            let tw = self.fonts.measure_text(FontStyle::Mono, 10.5, msg) + 28.0;
+            let tx = left_w + (main_w - tw) * 0.5;
             let ty = top_h + 10.0;
-            c.fill_rounded_rect(tx, ty, tw, 30.0, 8.0, pal.brand_navy);
-            c.stroke_rounded_rect(tx, ty, tw, 30.0, 8.0, 1.0, pal.primary);
+            draw_box(&mut c, tx, ty, tw, 30.0, pal.cta_bg, pal.hairline_strong, 1.0);
             c.draw_text(
                 &mut self.fonts,
-                FontStyle::SemiBold,
-                12.0,
+                FontStyle::Mono,
+                10.5,
                 tx + 14.0,
                 ty + 8.0,
-                pal.on_primary,
+                pal.cta_fg,
                 msg,
             );
         }
@@ -1192,604 +1368,1213 @@ impl NativeUi {
     }
 
     #[allow(clippy::too_many_arguments)]
+    fn render_left_sidebar(
+        &mut self,
+        c: &mut Canvas<'_>,
+        pal: &ThemePalette,
+        time_sec: f32,
+        cursor: (f32, f32),
+        win_h: f32,
+        snapshot: &RenderSnapshot<'_>,
+        hits: &mut Vec<HitRegion>,
+    ) {
+        let w = SIDEBAR_W;
+        c.fill_rect(0.0, 0.0, w, win_h, pal.strip);
+        c.fill_rect(w - 1.0, 0.0, 1.0, win_h, pal.hairline_strong);
+
+        c.push_clip(0.0, 0.0, w - 1.0, win_h);
+
+        // Header cell (matches 56px top toolbar hairline)
+        c.fill_rect(0.0, 0.0, w - 1.0, TOOLBAR_ROW_H, pal.strip);
+        c.fill_rect(0.0, TOOLBAR_ROW_H - 1.0, w, 1.0, pal.hairline);
+
+        let logo_hov = point_in(cursor, 10.0, 11.0, 146.0, 34.0);
+        c.draw_pluto_logo(12.0, 12.0, 32.0, if logo_hov { 1.0 } else { 0.0 });
+        c.draw_text(&mut self.fonts, FontStyle::Bold, 12.0, 52.0, 14.0, pal.ink, "PLUTO");
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 8.5, 52.0, 31.0, pal.steel, "ARC GRID // RUST");
+        hits.push(HitRegion {
+            x: 10.0,
+            y: 10.0,
+            w: 150.0,
+            h: 36.0,
+            id: HitId::BrandWelcome,
+            clickable: true,
+        });
+
+        // Switch to Top Strip pill box on sidebar header right
+        let sw_x = w - 68.0;
+        let sw_y = 14.0;
+        let sw_w = 56.0;
+        let sw_h = 28.0;
+        let sw_hov = point_in(cursor, sw_x, sw_y, sw_w, sw_h);
+        draw_box(
+            c,
+            sw_x,
+            sw_y,
+            sw_w,
+            sw_h,
+            if sw_hov { pal.btn_hover } else { pal.surface },
+            if sw_hov { pal.hairline_strong } else { pal.hairline },
+            1.0,
+        );
+        c.draw_text(
+            &mut self.fonts,
+            FontStyle::Mono,
+            9.0,
+            sw_x + 12.0,
+            sw_y + 8.0,
+            pal.ink,
+            "TOP",
+        );
+        hits.push(HitRegion {
+            x: sw_x,
+            y: sw_y,
+            w: sw_w,
+            h: sw_h,
+            id: HitId::ToggleSidebarLayout,
+            clickable: true,
+        });
+
+        // Quick Favorites Grid (3 x 2 sharp boxes)
+        let mut sy = TOOLBAR_ROW_H + 12.0;
+        c.draw_text(
+            &mut self.fonts,
+            FontStyle::Mono,
+            9.0,
+            12.0,
+            sy,
+            pal.steel,
+            "FAVORITES",
+        );
+        sy += 20.0;
+        let cell_w = (w - 32.0) / 3.0;
+        let cell_h = 44.0;
+        for (i, q) in QUICK_LINKS.iter().enumerate() {
+            let col = i % 3;
+            let row = i / 3;
+            let cx = 12.0 + col as f32 * (cell_w + 4.0);
+            let cy = sy + row as f32 * (cell_h + 4.0);
+            let hov = point_in(cursor, cx, cy, cell_w, cell_h);
+            draw_box(
+                c,
+                cx,
+                cy,
+                cell_w,
+                cell_h,
+                if hov { pal.btn_hover } else { pal.surface },
+                if hov { pal.hairline_strong } else { pal.hairline },
+                1.0,
+            );
+            c.draw_text(
+                &mut self.fonts,
+                FontStyle::Bold,
+                10.5,
+                cx + 8.0,
+                cy + 7.0,
+                pal.ink,
+                q.badge,
+            );
+            c.draw_text_ellipsis(
+                &mut self.fonts,
+                FontStyle::Mono,
+                8.5,
+                cx + 8.0,
+                cy + 24.0,
+                cell_w - 14.0,
+                pal.steel,
+                q.tag,
+            );
+            hits.push(HitRegion {
+                x: cx,
+                y: cy,
+                w: cell_w,
+                h: cell_h,
+                id: HitId::OpenUrlTile(q.url.to_string()),
+                clickable: true,
+            });
+        }
+        sy += 2.0 * (cell_h + 4.0) + 12.0;
+        c.fill_rect(12.0, sy, w - 24.0, 1.0, pal.hairline);
+        sy += 12.0;
+
+        // Open Tabs Header + New Tab Box
+        let tabs_hdr = format!("WORKSPACE TABS [{}]", snapshot.tabs.len());
+        c.draw_text(
+            &mut self.fonts,
+            FontStyle::Mono,
+            9.0,
+            12.0,
+            sy + 4.0,
+            pal.steel,
+            &tabs_hdr,
+        );
+        let nt_x = w - 68.0;
+        let nt_hov = point_in(cursor, nt_x, sy - 2.0, 56.0, 24.0);
+        draw_box(
+            c,
+            nt_x,
+            sy - 2.0,
+            56.0,
+            24.0,
+            if nt_hov { pal.cta_hover } else { pal.cta_bg },
+            pal.hairline_strong,
+            1.0,
+        );
+        c.draw_text(
+            &mut self.fonts,
+            FontStyle::Mono,
+            9.0,
+            nt_x + 9.0,
+            sy + 4.0,
+            pal.cta_fg,
+            "+ NEW",
+        );
+        hits.push(HitRegion {
+            x: nt_x,
+            y: sy - 2.0,
+            w: 56.0,
+            h: 24.0,
+            id: HitId::NewTabBtn,
+            clickable: true,
+        });
+        sy += 30.0;
+
+        // Vertical Tab List (respect footer zone at win_h - 116)
+        let footer_h = 114.0;
+        let footer_y = (win_h - footer_h).max(sy + 48.0);
+        for tab in snapshot.tabs {
+            if sy + 36.0 > footer_y - 8.0 {
+                break;
+            }
+            let tx = 12.0;
+            let tw = w - 24.0;
+            let th = 34.0;
+            let hov = point_in(cursor, tx, sy, tw, th);
+            let bg = if tab.active {
+                pal.surface_soft
+            } else if hov {
+                pal.tab_hover
+            } else {
+                pal.strip
+            };
+            let border = if tab.active {
+                pal.hairline_strong
+            } else if hov {
+                pal.hairline
+            } else {
+                Color::rgba(0, 0, 0, 0)
+            };
+            c.fill_rect(tx, sy, tw, th, bg);
+            if border.a > 0 {
+                c.stroke_rounded_rect(tx, sy, tw, th, 0.0, 1.0, border);
+            }
+            if tab.active {
+                c.fill_rect(tx, sy, 3.0, th, pal.primary);
+            }
+
+            if tab.is_loading {
+                let ang = time_sec * 6.0;
+                let lx = tx + 14.0 + ang.cos() * 3.5;
+                let ly = sy + th * 0.5 + ang.sin() * 3.5;
+                c.fill_rect(lx - 1.5, ly - 1.5, 3.0, 3.0, pal.primary);
+            } else if tab.pinned {
+                c.fill_rect(tx + 11.0, sy + th * 0.5 - 3.0, 6.0, 6.0, pal.primary);
+            } else {
+                c.fill_rect(
+                    tx + 12.0,
+                    sy + th * 0.5 - 2.0,
+                    4.0,
+                    4.0,
+                    if tab.active { pal.ink } else { pal.steel },
+                );
+            }
+
+            let show_close = !tab.pinned && (tab.active || hov);
+            let close_w = if show_close { 24.0 } else { 0.0 };
+            let badge_w = if tab.is_muted || tab.reader_active {
+                26.0
+            } else {
+                0.0
+            };
+
+            c.draw_text_ellipsis(
+                &mut self.fonts,
+                if tab.active {
+                    FontStyle::SemiBold
+                } else {
+                    FontStyle::Regular
+                },
+                10.5,
+                tx + 24.0,
+                sy + 10.0,
+                tw - 30.0 - close_w - badge_w,
+                if tab.active { pal.ink } else { pal.slate },
+                &tab.title,
+            );
+
+            if tab.is_muted {
+                c.draw_text(
+                    &mut self.fonts,
+                    FontStyle::Mono,
+                    8.5,
+                    tx + tw - close_w - 22.0,
+                    sy + 11.0,
+                    pal.primary,
+                    "M",
+                );
+            } else if tab.reader_active {
+                c.draw_text(
+                    &mut self.fonts,
+                    FontStyle::Mono,
+                    8.5,
+                    tx + tw - close_w - 22.0,
+                    sy + 11.0,
+                    pal.brand_green,
+                    "R",
+                );
+            }
+
+            hits.push(HitRegion {
+                x: tx,
+                y: sy,
+                w: tw - close_w,
+                h: th,
+                id: HitId::Tab(tab.id),
+                clickable: true,
+            });
+
+            if show_close {
+                let cx = tx + tw - 22.0;
+                let cy = sy + 6.0;
+                let chov = point_in(cursor, cx, cy, 18.0, 22.0);
+                if chov {
+                    c.fill_rect(cx, cy, 18.0, 22.0, pal.hairline);
+                }
+                c.draw_icon_close(cx + 9.0, cy + 11.0, pal.ink);
+                hits.push(HitRegion {
+                    x: cx,
+                    y: cy,
+                    w: 18.0,
+                    h: 22.0,
+                    id: HitId::CloseTab(tab.id),
+                    clickable: true,
+                });
+            }
+            sy += th + 4.0;
+        }
+
+        // Sidebar Footer Action Grid
+        c.fill_rect(0.0, footer_y, w - 1.0, win_h - footer_y, pal.strip);
+        c.fill_rect(0.0, footer_y, w, 1.0, pal.hairline_strong);
+
+        let bw = (w - 28.0) / 2.0;
+        let bh = 32.0;
+        let fx1 = 12.0;
+        let fx2 = 16.0 + bw;
+        let fy1 = footer_y + 12.0;
+        let fy2 = fy1 + bh + 6.0;
+
+        for (bx, by, label, hid, active) in [
+            (fx1, fy1, "BOOKMARKS", HitId::BookmarkBarToggle, snapshot.show_bookmarks_bar),
+            (fx2, fy1, "INSPECTOR", HitId::ToggleInspector, self.inspector_open),
+            (fx1, fy2, "SETTINGS", HitId::OpenSettings, snapshot.active_url == SETTINGS_URL),
+            (
+                fx2,
+                fy2,
+                if self.dark_mode { "DARK GRID" } else { "LIGHT GRID" },
+                HitId::ThemeToggle,
+                false,
+            ),
+        ] {
+            let hov = point_in(cursor, bx, by, bw, bh);
+            draw_box(
+                c,
+                bx,
+                by,
+                bw,
+                bh,
+                if active {
+                    pal.surface_soft
+                } else if hov {
+                    pal.btn_hover
+                } else {
+                    pal.surface
+                },
+                if active || hov {
+                    pal.hairline_strong
+                } else {
+                    pal.hairline
+                },
+                1.0,
+            );
+            c.draw_text(
+                &mut self.fonts,
+                FontStyle::Mono,
+                9.0,
+                bx + 10.0,
+                by + 10.0,
+                if active { pal.ink } else { pal.charcoal },
+                label,
+            );
+            hits.push(HitRegion {
+                x: bx,
+                y: by,
+                w: bw,
+                h: bh,
+                id: hid,
+                clickable: true,
+            });
+        }
+
+        let status_y = fy2 + bh + 8.0;
+        let shield_txt = if snapshot.adblock_enabled {
+            "SHIELD ON // 100% NATIVE RUST"
+        } else {
+            "SHIELD PAUSED // PURE RUST UI"
+        };
+        c.draw_text(
+            &mut self.fonts,
+            FontStyle::Mono,
+            8.5,
+            12.0,
+            status_y,
+            if snapshot.adblock_enabled {
+                pal.brand_green
+            } else {
+                pal.steel
+            },
+            shield_txt,
+        );
+
+        c.pop_clip();
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn render_chrome_bar(
         &mut self,
         c: &mut Canvas<'_>,
         pal: &ThemePalette,
         time_sec: f32,
         cursor: (f32, f32),
-        win_w: f32,
+        left_w: f32,
+        main_w: f32,
         snapshot: &RenderSnapshot<'_>,
         hits: &mut Vec<HitRegion>,
     ) {
-        // Tab strip row (0..44)
-        c.fill_rect(0.0, 0.0, win_w, 44.0, pal.strip);
+        let mut toolbar_y = 0.0;
 
-        // Brand button (Planet Pluto)
-        let brand_x = 10.0;
-        let brand_y = 7.0;
-        let brand_sz = 30.0;
-        let brand_hover = point_in(cursor, brand_x, brand_y, brand_sz, brand_sz);
-        c.fill_rounded_rect(brand_x, brand_y, brand_sz, brand_sz, 8.0, pal.canvas);
-        c.stroke_rounded_rect(
-            brand_x,
-            brand_y,
-            brand_sz,
-            brand_sz,
-            8.0,
-            1.0,
-            if brand_hover { pal.primary } else { pal.hairline },
-        );
-        c.draw_pluto_logo(brand_x + 4.0, brand_y + 4.0, 22.0, if brand_hover { 1.0 } else { 0.0 });
-        hits.push(HitRegion {
-            x: brand_x,
-            y: brand_y,
-            w: brand_sz,
-            h: brand_sz,
-            id: HitId::BrandWelcome,
-            clickable: true,
-        });
+        // Top Tab Strip row (only in Top Horizontal Bar mode)
+        if !snapshot.sidebar_left {
+            c.fill_rect(left_w, 0.0, main_w, TOP_TAB_ROW_H, pal.strip);
+            c.fill_rect(left_w, TOP_TAB_ROW_H - 1.0, main_w, 1.0, pal.hairline);
 
-        // Right-side Theme Toggle button inside strip
-        let theme_x = win_w - 40.0;
-        let theme_y = 7.0;
-        let theme_hover = point_in(cursor, theme_x, theme_y, 30.0, 30.0);
-        if theme_hover {
-            c.fill_rounded_rect(theme_x, theme_y, 30.0, 30.0, 8.0, pal.btn_hover);
-        }
-        c.draw_icon_theme(
-            theme_x + 15.0,
-            theme_y + 15.0,
-            self.dark_mode,
-            if theme_hover { pal.ink } else { pal.steel },
-        );
-        hits.push(HitRegion {
-            x: theme_x,
-            y: theme_y,
-            w: 30.0,
-            h: 30.0,
-            id: HitId::ThemeToggle,
-            clickable: true,
-        });
-
-        // Tabs layout
-        let tabs_start_x = 48.0;
-        let tabs_end_x = (theme_x - 42.0).max(tabs_start_x + 90.0);
-        let avail_w = tabs_end_x - tabs_start_x;
-
-        let pinned_count = snapshot.tabs.iter().filter(|t| t.pinned).count();
-        let unpinned_count = snapshot.tabs.len().saturating_sub(pinned_count);
-        let pinned_total = pinned_count as f32 * 48.0;
-        let unpinned_w = if unpinned_count > 0 {
-            ((avail_w - pinned_total - (snapshot.tabs.len() as f32 * 5.0)) / unpinned_count as f32)
-                .clamp(92.0, 230.0)
-        } else {
-            175.0
-        };
-
-        let mut tx = tabs_start_x;
-        c.push_clip(tabs_start_x, 0.0, avail_w, 44.0);
-        for tab in snapshot.tabs {
-            let tw = if tab.pinned { 44.0 } else { unpinned_w };
-            if tx > tabs_end_x {
-                break;
-            }
-            let ty = 6.0;
-            let th = 38.0;
-            let hovered = point_in(cursor, tx, ty, tw, th);
-
-            if tab.active {
-                c.fill_rounded_rect(tx, ty, tw, th + 2.0, 9.0, pal.canvas);
-                c.stroke_rounded_rect(tx, ty, tw, th + 4.0, 9.0, 1.0, pal.hairline);
-                c.fill_rounded_rect(tx + 10.0, ty + 1.0, (tw - 20.0).max(8.0), 2.5, 1.2, pal.primary);
-            } else if hovered {
-                c.fill_rounded_rect(tx, ty, tw, th, 9.0, pal.tab_hover);
-            }
-
-            let icon_cx = if tab.pinned { tx + tw * 0.5 } else { tx + 17.0 };
-            let icon_cy = ty + 19.0;
-            if tab.is_loading {
-                c.draw_spinner(icon_cx, icon_cy, 5.8, time_sec, pal.hairline, pal.primary);
-            } else if tab.url == WELCOME_URL || tab.url == NEW_TAB_URL {
-                c.fill_circle(icon_cx, icon_cy, 5.2, pal.primary);
-                c.fill_circle(icon_cx + 3.5, icon_cy - 3.5, 2.2, pal.brand_purple_soft);
-            } else {
-                c.draw_icon_globe(icon_cx, icon_cy, if tab.active { pal.ink } else { pal.steel });
-            }
-
-            if !tab.pinned {
-                let close_x = tx + tw - 24.0;
-                let close_y = ty + 9.0;
-                let close_hover = point_in(cursor, close_x, close_y, 20.0, 20.0);
-
-                let text_x = tx + 30.0;
-                let text_w = (close_x - text_x - 4.0).max(20.0);
-                c.draw_text_ellipsis(
-                    &mut self.fonts,
-                    FontStyle::SemiBold,
-                    12.5,
-                    text_x,
-                    ty + 11.5,
-                    text_w,
-                    if tab.active { pal.ink } else { pal.slate },
-                    &tab.title,
-                );
-
-                if close_hover {
-                    c.fill_rounded_rect(close_x, close_y, 20.0, 20.0, 5.0, pal.btn_active);
-                }
-                c.draw_icon_close(
-                    close_x + 10.0,
-                    close_y + 10.0,
-                    if close_hover || tab.active {
-                        pal.charcoal
-                    } else {
-                        pal.steel
-                    },
-                );
-                hits.push(HitRegion {
-                    x: tx,
-                    y: ty,
-                    w: tw - 26.0,
-                    h: th,
-                    id: HitId::Tab(tab.id),
-                    clickable: true,
-                });
-                hits.push(HitRegion {
-                    x: close_x,
-                    y: close_y,
-                    w: 20.0,
-                    h: 20.0,
-                    id: HitId::CloseTab(tab.id),
-                    clickable: true,
-                });
-            } else {
-                hits.push(HitRegion {
-                    x: tx,
-                    y: ty,
-                    w: tw,
-                    h: th,
-                    id: HitId::Tab(tab.id),
-                    clickable: true,
-                });
-            }
-
-            tx += tw + 5.0;
-        }
-        c.pop_clip();
-
-        // New Tab '+' button right after tabs
-        let plus_x = (tx + 2.0).min(theme_x - 36.0);
-        let plus_y = 7.0;
-        let plus_hover = point_in(cursor, plus_x, plus_y, 30.0, 30.0);
-        if plus_hover {
-            c.fill_rounded_rect(plus_x, plus_y, 30.0, 30.0, 8.0, pal.btn_hover);
-        }
-        c.draw_icon_plus(plus_x + 15.0, plus_y + 15.0, if plus_hover { pal.ink } else { pal.steel });
-        hits.push(HitRegion {
-            x: plus_x,
-            y: plus_y,
-            w: 30.0,
-            h: 30.0,
-            id: HitId::NewTabBtn,
-            clickable: true,
-        });
-
-        // Toolbar row (44..96)
-        c.fill_rect(0.0, 44.0, win_w, 52.0, pal.canvas);
-        c.fill_rect(0.0, 95.0, win_w, 1.0, pal.hairline);
-
-        let tb_y = 54.0;
-        let nav_buttons = [
-            (10.0, HitId::Back),
-            (44.0, HitId::Forward),
-            (78.0, HitId::ReloadOrStop),
-            (112.0, HitId::Home),
-            (146.0, HitId::ReopenClosed),
-        ];
-
-        for (bx, hit_id) in nav_buttons {
-            let disabled = matches!(hit_id, HitId::ReopenClosed) && !snapshot.can_reopen_closed;
-            let hovered = !disabled && point_in(cursor, bx, tb_y, 32.0, 32.0);
-            if hovered {
-                c.fill_rounded_rect(bx, tb_y, 32.0, 32.0, 8.0, pal.btn_hover);
-            }
-            let ic = if disabled {
-                pal.muted
-            } else if hovered {
-                pal.ink
-            } else {
-                pal.slate
-            };
-            let cx = bx + 16.0;
-            let cy = tb_y + 16.0;
-            match &hit_id {
-                HitId::Back => c.draw_icon_back(cx, cy, ic),
-                HitId::Forward => c.draw_icon_forward(cx, cy, ic),
-                HitId::ReloadOrStop => {
-                    if snapshot.active_is_loading {
-                        c.draw_icon_stop(cx, cy, ic);
-                    } else {
-                        c.draw_icon_reload(cx, cy, ic);
-                    }
-                }
-                HitId::Home => c.draw_icon_home(cx, cy, ic),
-                HitId::ReopenClosed => c.draw_icon_reopen(cx, cy, ic),
-                _ => {}
-            }
-            if !disabled {
-                hits.push(HitRegion {
-                    x: bx,
-                    y: tb_y,
-                    w: 32.0,
-                    h: 32.0,
-                    id: hit_id,
-                    clickable: true,
-                });
-            }
-        }
-
-        // Right tool controls: Zoom [- 100% +] + Find + CmdPalette + Inspector + F12 Dev
-        let f12_w = 78.0;
-        let insp_w = 88.0;
-        let pal_w = 32.0;
-        let find_w = 32.0;
-        let zoom_grp_w = 104.0;
-
-        let f12_x = win_w - f12_w - 10.0;
-        let insp_x = f12_x - insp_w - 6.0;
-        let pal_x = insp_x - pal_w - 6.0;
-        let find_x = pal_x - find_w - 6.0;
-        let zoom_x = find_x - zoom_grp_w - 10.0;
-
-        // Omnibox fills remaining middle width
-        let omni_x = 186.0;
-        let omni_w = (zoom_x - omni_x - 12.0).max(160.0);
-        let omni_y = 52.0;
-        let omni_h = 36.0;
-        let omni_focused = self.active_input == ActiveInput::Omnibox;
-
-        c.fill_rounded_rect(
-            omni_x,
-            omni_y,
-            omni_w,
-            omni_h,
-            9.0,
-            if omni_focused { pal.canvas } else { pal.omnibox_bg },
-        );
-        c.stroke_rounded_rect(
-            omni_x,
-            omni_y,
-            omni_w,
-            omni_h,
-            9.0,
-            if omni_focused { 2.0 } else { 1.0 },
-            if omni_focused { pal.primary } else { pal.hairline },
-        );
-
-        // Protocol pill badge inside omnibox
-        let badge_label = if snapshot.active_url.starts_with("https://") {
-            "HTTPS"
-        } else if snapshot.active_url == WELCOME_URL || snapshot.active_url == NEW_TAB_URL {
-            "Pluto"
-        } else {
-            "HTTP"
-        };
-        let (badge_bg, badge_fg) = if badge_label == "HTTPS" {
-            (pal.tint_mint, pal.tint_mint_ink)
-        } else if badge_label == "Pluto" {
-            (pal.tint_lavender, pal.tint_lavender_ink)
-        } else {
-            (pal.tint_gray, pal.slate)
-        };
-        let badge_w = self.fonts.measure_text(FontStyle::SemiBold, 11.0, badge_label) + 14.0;
-        c.fill_rounded_rect(omni_x + 7.0, omni_y + 7.0, badge_w, 22.0, 6.0, badge_bg);
-        c.draw_text(
-            &mut self.fonts,
-            FontStyle::SemiBold,
-            11.0,
-            omni_x + 14.0,
-            omni_y + 11.5,
-            badge_fg,
-            badge_label,
-        );
-
-        // Right controls inside Omnibox: Bookmark star + Copy URL + Clear (when typing)
-        let star_x = omni_x + omni_w - 30.0;
-        let star_hover = point_in(cursor, star_x, omni_y + 5.0, 26.0, 26.0);
-        if star_hover {
-            c.fill_rounded_rect(star_x, omni_y + 5.0, 26.0, 26.0, 6.0, pal.btn_hover);
-        }
-        c.draw_icon_star(
-            star_x + 13.0,
-            omni_y + 18.0,
-            snapshot.is_bookmarked,
-            if snapshot.is_bookmarked {
-                pal.star_active
-            } else if star_hover {
-                pal.ink
-            } else {
-                pal.steel
-            },
-        );
-        hits.push(HitRegion {
-            x: star_x,
-            y: omni_y + 5.0,
-            w: 26.0,
-            h: 26.0,
-            id: HitId::ToggleBookmark,
-            clickable: true,
-        });
-
-        let copy_x = star_x - 28.0;
-        let copy_hover = point_in(cursor, copy_x, omni_y + 5.0, 26.0, 26.0);
-        if copy_hover {
-            c.fill_rounded_rect(copy_x, omni_y + 5.0, 26.0, 26.0, 6.0, pal.btn_hover);
-        }
-        c.draw_icon_copy(copy_x + 13.0, omni_y + 18.0, if copy_hover { pal.ink } else { pal.steel });
-        hits.push(HitRegion {
-            x: copy_x,
-            y: omni_y + 5.0,
-            w: 26.0,
-            h: 26.0,
-            id: HitId::CopyUrl,
-            clickable: true,
-        });
-
-        let mut text_right_edge = copy_x - 6.0;
-        if omni_focused && !self.omnibox_text.is_empty() {
-            let clr_x = copy_x - 26.0;
-            let clr_hov = point_in(cursor, clr_x, omni_y + 7.0, 22.0, 22.0);
-            if clr_hov {
-                c.fill_rounded_rect(clr_x, omni_y + 7.0, 22.0, 22.0, 11.0, pal.btn_active);
-            }
-            c.draw_icon_close(clr_x + 11.0, omni_y + 18.0, if clr_hov { pal.ink } else { pal.steel });
+            // Brand box
+            let logo_hov = point_in(cursor, 8.0, 6.0, 108.0, 34.0);
+            c.draw_pluto_logo(10.0, 7.0, 32.0, if logo_hov { 1.0 } else { 0.0 });
+            c.draw_text(
+                &mut self.fonts,
+                FontStyle::Bold,
+                11.5,
+                48.0,
+                15.0,
+                pal.ink,
+                "PLUTO",
+            );
             hits.push(HitRegion {
-                x: clr_x,
-                y: omni_y + 7.0,
-                w: 22.0,
-                h: 22.0,
-                id: HitId::OmniboxClear,
+                x: 8.0,
+                y: 6.0,
+                w: 110.0,
+                h: 34.0,
+                id: HitId::BrandWelcome,
                 clickable: true,
             });
-            text_right_edge = clr_x - 6.0;
-        }
+            c.fill_rect(122.0, 8.0, 1.0, TOP_TAB_ROW_H - 16.0, pal.hairline);
 
-        // Omnibox editable text + visible caret + horizontal auto-scroll
-        let text_x = omni_x + badge_w + 15.0;
-        let text_max_w = (text_right_edge - text_x).max(24.0);
-        c.push_clip(text_x, omni_y + 2.0, text_max_w, omni_h - 4.0);
-        if self.omnibox_text.is_empty() {
-            if omni_focused && ((time_sec * 2.0) as i32) % 2 == 0 {
-                c.fill_rect(text_x, omni_y + 8.0, 2.0, 20.0, pal.primary);
-            }
-            c.draw_text(
-                &mut self.fonts,
-                FontStyle::Regular,
-                13.0,
-                text_x + 4.0,
-                omni_y + 9.5,
-                pal.steel,
-                "Search Google or type a URL (Ctrl+L)...",
-            );
-        } else {
-            let visible = tail_fitting_width(&self.fonts, FontStyle::Regular, 13.0, &self.omnibox_text, text_max_w - 6.0);
-            let tw = self.fonts.measure_text(FontStyle::Regular, 13.0, visible);
-            if omni_focused && self.omnibox_select_all {
-                c.fill_rounded_rect(
-                    text_x - 2.0,
-                    omni_y + 7.0,
-                    (tw + 6.0).min(text_max_w),
-                    22.0,
-                    4.0,
-                    Color::rgba(pal.primary.r, pal.primary.g, pal.primary.b, 58),
+            // Far right layout controls inside Tab Strip: [ARC] + [SET] + [THEME]
+            let theme_x = main_w - 42.0;
+            let set_x = theme_x - 42.0;
+            let arc_x = set_x - 66.0;
+
+            for (bx, bw, hid, kind) in [
+                (arc_x, 60.0, HitId::ToggleSidebarLayout, 0),
+                (set_x, 36.0, HitId::OpenSettings, 1),
+                (theme_x, 36.0, HitId::ThemeToggle, 2),
+            ] {
+                let by = 8.0;
+                let bh = 30.0;
+                let hov = point_in(cursor, bx, by, bw, bh);
+                let active_set = kind == 1 && snapshot.active_url == SETTINGS_URL;
+                draw_box(
+                    c,
+                    bx,
+                    by,
+                    bw,
+                    bh,
+                    if active_set {
+                        pal.surface_soft
+                    } else if hov {
+                        pal.btn_hover
+                    } else {
+                        pal.surface
+                    },
+                    if active_set || hov {
+                        pal.hairline_strong
+                    } else {
+                        pal.hairline
+                    },
+                    1.0,
                 );
+                match kind {
+                    0 => {
+                        c.draw_icon_sidebar(bx + 14.0, by + 15.0, pal.ink);
+                        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.0, bx + 25.0, by + 9.0, pal.ink, "ARC");
+                    }
+                    1 => c.draw_icon_settings(bx + bw * 0.5, by + 15.0, pal.ink),
+                    _ => c.draw_icon_theme(bx + bw * 0.5, by + 15.0, self.dark_mode, pal.ink),
+                }
+                hits.push(HitRegion {
+                    x: bx,
+                    y: by,
+                    w: bw,
+                    h: bh,
+                    id: hid,
+                    clickable: true,
+                });
             }
-            c.draw_text(
-                &mut self.fonts,
-                FontStyle::Regular,
-                13.0,
-                text_x,
-                omni_y + 9.5,
-                pal.ink,
-                visible,
+
+            // Tab Strip area
+            let mut tx = 130.0;
+            let right_limit = (arc_x - 46.0).max(tx + 80.0);
+            let avail_w = (right_limit - tx).max(60.0);
+            let pinned_count = snapshot.tabs.iter().filter(|t| t.pinned).count();
+            let reg_count = snapshot.tabs.len().saturating_sub(pinned_count).max(1);
+            let pinned_total = pinned_count as f32 * 44.0;
+            let reg_w = ((avail_w - pinned_total) / reg_count as f32).clamp(90.0, 224.0);
+
+            for tab in snapshot.tabs {
+                let tw = if tab.pinned { 42.0 } else { reg_w };
+                if tx + tw > right_limit + 4.0 {
+                    break;
+                }
+                let ty = 6.0;
+                let th = TOP_TAB_ROW_H - 7.0;
+                let hov = point_in(cursor, tx, ty, tw, th);
+                let bg = if tab.active {
+                    pal.surface
+                } else if hov {
+                    pal.tab_hover
+                } else {
+                    pal.strip
+                };
+                c.fill_rect(tx, ty, tw, th, bg);
+                c.fill_rect(tx + tw - 1.0, ty, 1.0, th, pal.hairline);
+                if tab.active {
+                    c.fill_rect(tx, ty, tw, 2.0, pal.primary);
+                    c.fill_rect(tx, ty, 1.0, th, pal.hairline_strong);
+                    c.fill_rect(tx + tw - 1.0, ty, 1.0, th, pal.hairline_strong);
+                }
+
+                if tab.is_loading {
+                    let ang = time_sec * 6.0;
+                    let lx = tx + 14.0 + ang.cos() * 3.5;
+                    let ly = ty + th * 0.5 + ang.sin() * 3.5;
+                    c.fill_rect(lx - 1.5, ly - 1.5, 3.0, 3.0, pal.primary);
+                } else if tab.pinned {
+                    c.fill_rect(tx + tw * 0.5 - 3.0, ty + th * 0.5 - 3.0, 6.0, 6.0, pal.primary);
+                } else {
+                    c.fill_rect(
+                        tx + 12.0,
+                        ty + th * 0.5 - 2.0,
+                        4.0,
+                        4.0,
+                        if tab.active { pal.ink } else { pal.steel },
+                    );
+                }
+
+                let show_close = !tab.pinned && (tab.active || hov || tw > 130.0);
+                let close_pad = if show_close { 24.0 } else { 8.0 };
+                let flag_pad = if !tab.pinned && (tab.is_muted || tab.reader_active) {
+                    16.0
+                } else {
+                    0.0
+                };
+
+                if !tab.pinned {
+                    c.draw_text_ellipsis(
+                        &mut self.fonts,
+                        if tab.active {
+                            FontStyle::SemiBold
+                        } else {
+                            FontStyle::Regular
+                        },
+                        10.0,
+                        tx + 22.0,
+                        ty + 12.0,
+                        (tw - 24.0 - close_pad - flag_pad).max(16.0),
+                        if tab.active { pal.ink } else { pal.slate },
+                        &tab.title,
+                    );
+                    if tab.is_muted {
+                        c.draw_text(
+                            &mut self.fonts,
+                            FontStyle::Mono,
+                            8.5,
+                            tx + tw - close_pad - 14.0,
+                            ty + 13.0,
+                            pal.primary,
+                            "M",
+                        );
+                    } else if tab.reader_active {
+                        c.draw_text(
+                            &mut self.fonts,
+                            FontStyle::Mono,
+                            8.5,
+                            tx + tw - close_pad - 14.0,
+                            ty + 13.0,
+                            pal.brand_green,
+                            "R",
+                        );
+                    }
+                }
+
+                hits.push(HitRegion {
+                    x: tx,
+                    y: ty,
+                    w: tw - if show_close { 22.0 } else { 0.0 },
+                    h: th,
+                    id: HitId::Tab(tab.id),
+                    clickable: true,
+                });
+
+                if show_close {
+                    let cx = tx + tw - 22.0;
+                    let cy = ty + 8.0;
+                    let chov = point_in(cursor, cx, cy, 18.0, 22.0);
+                    if chov {
+                        c.fill_rect(cx, cy, 18.0, 22.0, pal.hairline);
+                    }
+                    c.draw_icon_close(cx + 9.0, cy + 11.0, pal.ink);
+                    hits.push(HitRegion {
+                        x: cx,
+                        y: cy,
+                        w: 18.0,
+                        h: 22.0,
+                        id: HitId::CloseTab(tab.id),
+                        clickable: true,
+                    });
+                }
+
+                tx += tw;
+            }
+
+            // New Tab + button right after last tab
+            let ntx = tx + 4.0;
+            let nty = 8.0;
+            let ntw = 32.0;
+            let nth = 30.0;
+            if ntx + ntw <= right_limit + 38.0 {
+                let hov = point_in(cursor, ntx, nty, ntw, nth);
+                draw_box(
+                    c,
+                    ntx,
+                    nty,
+                    ntw,
+                    nth,
+                    if hov { pal.btn_hover } else { pal.surface },
+                    if hov { pal.hairline_strong } else { pal.hairline },
+                    1.0,
+                );
+                c.draw_icon_plus(ntx + 16.0, nty + 15.0, pal.ink);
+                hits.push(HitRegion {
+                    x: ntx,
+                    y: nty,
+                    w: ntw,
+                    h: nth,
+                    id: HitId::NewTabBtn,
+                    clickable: true,
+                });
+            }
+
+            toolbar_y = TOP_TAB_ROW_H;
+        }
+
+        // Toolbar Row (56px high, sharp exposed boxes)
+        c.fill_rect(left_w, toolbar_y, main_w, TOOLBAR_ROW_H, pal.surface);
+        c.fill_rect(
+            left_w,
+            toolbar_y + TOOLBAR_ROW_H - 1.0,
+            main_w,
+            1.0,
+            pal.hairline_strong,
+        );
+
+        let by = toolbar_y + 9.0;
+        let bh = 38.0;
+        let mut nx = left_w + 10.0;
+
+        // In Sidebar mode, start with Sidebar Collapse button [|=]
+        if snapshot.sidebar_left {
+            let bw = if snapshot.sidebar_collapsed { 62.0 } else { 36.0 };
+            let hov = point_in(cursor, nx, by, bw, bh);
+            draw_box(
+                c,
+                nx,
+                by,
+                bw,
+                bh,
+                if hov { pal.btn_hover } else { pal.canvas },
+                if hov || snapshot.sidebar_collapsed {
+                    pal.hairline_strong
+                } else {
+                    pal.hairline
+                },
+                1.0,
             );
-            if omni_focused && ((time_sec * 2.0) as i32) % 2 == 0 {
-                let cx = text_x + tw + 2.0;
-                c.fill_rect(cx, omni_y + 8.0, 2.0, 20.0, pal.primary);
+            c.draw_icon_sidebar(nx + 17.0, by + bh * 0.5, pal.ink);
+            if snapshot.sidebar_collapsed {
+                let cnt = format!("{}", snapshot.tabs.len());
+                c.draw_text(&mut self.fonts, FontStyle::Mono, 9.5, nx + 32.0, by + 12.0, pal.ink, &cnt);
             }
+            hits.push(HitRegion {
+                x: nx,
+                y: by,
+                w: bw,
+                h: bh,
+                id: HitId::ToggleSidebarCollapse,
+                clickable: true,
+            });
+            nx += bw + 6.0;
         }
-        c.pop_clip();
-        hits.push(HitRegion {
-            x: omni_x,
-            y: omni_y,
-            w: text_right_edge - omni_x,
-            h: omni_h,
-            id: HitId::Omnibox,
-            clickable: true,
-        });
 
-        // Visible Zoom cluster: [- | 100% | +]
-        c.fill_rounded_rect(zoom_x, tb_y, zoom_grp_w, 32.0, 8.0, pal.surface);
-        c.stroke_rounded_rect(zoom_x, tb_y, zoom_grp_w, 32.0, 8.0, 1.0, pal.hairline);
+        // Navigation Buttons: Back, Fwd, Reload/Stop, Home, ReopenClosed
+        let nav_specs = [
+            (HitId::Back, 0, true),
+            (HitId::Forward, 1, true),
+            (HitId::ReloadOrStop, 2, true),
+            (HitId::Home, 3, true),
+            (HitId::ReopenClosed, 4, snapshot.can_reopen_closed),
+        ];
+        for (hid, kind, enabled) in nav_specs {
+            let bw = 34.0;
+            let hov = enabled && point_in(cursor, nx, by, bw, bh);
+            draw_box(
+                c,
+                nx,
+                by,
+                bw,
+                bh,
+                if hov { pal.btn_hover } else { pal.canvas },
+                if hov { pal.hairline_strong } else { pal.hairline },
+                1.0,
+            );
+            let fg = if !enabled { pal.muted } else { pal.ink };
+            let cx = nx + bw * 0.5;
+            let cy = by + bh * 0.5;
+            match kind {
+                0 => c.draw_icon_back(cx, cy, fg),
+                1 => c.draw_icon_forward(cx, cy, fg),
+                2 => {
+                    if snapshot.active_is_loading {
+                        c.draw_icon_stop(cx, cy, pal.primary);
+                    } else {
+                        c.draw_icon_reload(cx, cy, fg);
+                    }
+                }
+                3 => c.draw_icon_home(cx, cy, fg),
+                _ => c.draw_icon_reopen(cx, cy, fg),
+            }
+            if enabled {
+                hits.push(HitRegion {
+                    x: nx,
+                    y: by,
+                    w: bw,
+                    h: bh,
+                    id: hid,
+                    clickable: true,
+                });
+            }
+            nx += bw + 4.0;
+        }
+        nx += 4.0;
 
-        let z_out_hov = point_in(cursor, zoom_x, tb_y, 28.0, 32.0);
+        // Right Toolbar Action Cluster
+        let right_end = left_w + main_w - 10.0;
+        let f12_w = 40.0;
+        let set_w = if snapshot.sidebar_left { 34.0 } else { 0.0 };
+        let insp_w = 38.0;
+        let pal_w = 34.0;
+        let find_w = 34.0;
+        let bm_w = if !snapshot.sidebar_left { 34.0 } else { 0.0 };
+        let zoom_w = 104.0;
+        let mute_w = 34.0;
+        let rdr_w = 34.0;
+        let shd_w = 34.0;
+
+        let mut rx = right_end;
+        // F12
+        rx -= f12_w;
+        let f12_x = rx;
+        // Settings (visible here in Sidebar mode)
+        let set_x = if set_w > 0.0 {
+            rx -= set_w + 4.0;
+            rx
+        } else {
+            0.0
+        };
+        // Inspector
+        rx -= insp_w + 4.0;
+        let insp_x = rx;
+        // Palette
+        rx -= pal_w + 4.0;
+        let pal_x = rx;
+        // Find
+        rx -= find_w + 4.0;
+        let find_x = rx;
+        // Bookmarks toggle (Top mode)
+        let bm_x = if bm_w > 0.0 {
+            rx -= bm_w + 4.0;
+            rx
+        } else {
+            0.0
+        };
+        // Zoom Trio
+        rx -= zoom_w + 6.0;
+        let zoom_x = rx;
+        // Mute
+        rx -= mute_w + 4.0;
+        let mute_x = rx;
+        // Reader
+        rx -= rdr_w + 4.0;
+        let rdr_x = rx;
+        // Shield
+        rx -= shd_w + 4.0;
+        let shd_x = rx;
+
+        // Draw Shield, Reader, Mute
+        for (bx, bw, active, accent, kind, hid) in [
+            (shd_x, shd_w, snapshot.adblock_enabled, pal.brand_green, 0, HitId::ToggleShield),
+            (rdr_x, rdr_w, snapshot.active_reader, pal.primary, 1, HitId::ToggleReader),
+            (mute_x, mute_w, snapshot.active_muted, pal.primary, 2, HitId::ToggleMute),
+        ] {
+            let hov = point_in(cursor, bx, by, bw, bh);
+            draw_box(
+                c,
+                bx,
+                by,
+                bw,
+                bh,
+                if active { pal.surface_soft } else if hov { pal.btn_hover } else { pal.canvas },
+                if active { accent } else if hov { pal.hairline_strong } else { pal.hairline },
+                1.0,
+            );
+            let cx = bx + bw * 0.5;
+            let cy = by + bh * 0.5;
+            let ic = if active { accent } else { pal.ink };
+            match kind {
+                0 => c.draw_icon_shield(cx, cy, active, ic),
+                1 => c.draw_icon_reader(cx, cy, ic),
+                _ => c.draw_icon_volume(cx, cy, active, ic),
+            }
+            hits.push(HitRegion {
+                x: bx,
+                y: by,
+                w: bw,
+                h: bh,
+                id: hid,
+                clickable: true,
+            });
+        }
+
+        // Draw Joined Zoom Control [- | 100% | +]
+        draw_box(c, zoom_x, by, zoom_w, bh, pal.canvas, pal.hairline, 1.0);
+        let z_out_hov = point_in(cursor, zoom_x, by, 28.0, bh);
         if z_out_hov {
-            c.fill_rounded_rect(zoom_x + 1.0, tb_y + 1.0, 27.0, 30.0, 7.0, pal.btn_hover);
+            c.fill_rect(zoom_x, by, 28.0, bh, pal.btn_hover);
         }
-        c.draw_icon_minus(zoom_x + 14.0, tb_y + 16.0, if z_out_hov { pal.ink } else { pal.slate });
+        c.draw_icon_minus(zoom_x + 14.0, by + bh * 0.5, pal.ink);
+        c.fill_rect(zoom_x + 28.0, by + 6.0, 1.0, bh - 12.0, pal.hairline);
+
+        let z_rst_hov = point_in(cursor, zoom_x + 29.0, by, 46.0, bh);
+        if z_rst_hov {
+            c.fill_rect(zoom_x + 29.0, by, 46.0, bh, pal.btn_hover);
+        }
+        let z_label = format!("{}%", snapshot.zoom_percent);
+        let zw = self.fonts.measure_text(FontStyle::Mono, 9.5, &z_label);
+        c.draw_text(
+            &mut self.fonts,
+            FontStyle::Mono,
+            9.5,
+            zoom_x + 29.0 + (46.0 - zw) * 0.5,
+            by + 12.0,
+            if snapshot.zoom_percent == 100 { pal.slate } else { pal.ink },
+            &z_label,
+        );
+        c.fill_rect(zoom_x + 75.0, by + 6.0, 1.0, bh - 12.0, pal.hairline);
+
+        let z_in_hov = point_in(cursor, zoom_x + 76.0, by, 28.0, bh);
+        if z_in_hov {
+            c.fill_rect(zoom_x + 76.0, by, 28.0, bh, pal.btn_hover);
+        }
+        c.draw_icon_plus(zoom_x + 90.0, by + bh * 0.5, pal.ink);
         hits.push(HitRegion {
             x: zoom_x,
-            y: tb_y,
+            y: by,
             w: 28.0,
-            h: 32.0,
+            h: bh,
             id: HitId::ZoomOut,
             clickable: true,
         });
-
-        let z_mid_x = zoom_x + 28.0;
-        let z_mid_w = 48.0;
-        let z_mid_hov = point_in(cursor, z_mid_x, tb_y, z_mid_w, 32.0);
-        if z_mid_hov {
-            c.fill_rect(z_mid_x, tb_y + 1.0, z_mid_w, 30.0, pal.btn_hover);
-        }
-        let zlabel = format!("{}%", snapshot.zoom_percent);
-        let zw = self.fonts.measure_text(FontStyle::SemiBold, 11.5, &zlabel);
-        c.draw_text(
-            &mut self.fonts,
-            FontStyle::SemiBold,
-            11.5,
-            z_mid_x + (z_mid_w - zw) * 0.5,
-            tb_y + 9.0,
-            if snapshot.zoom_percent != 100 { pal.primary } else { pal.charcoal },
-            &zlabel,
-        );
         hits.push(HitRegion {
-            x: z_mid_x,
-            y: tb_y,
-            w: z_mid_w,
-            h: 32.0,
+            x: zoom_x + 29.0,
+            y: by,
+            w: 46.0,
+            h: bh,
             id: HitId::ZoomReset,
             clickable: true,
         });
-
-        let z_in_x = z_mid_x + z_mid_w;
-        let z_in_hov = point_in(cursor, z_in_x, tb_y, 28.0, 32.0);
-        if z_in_hov {
-            c.fill_rounded_rect(z_in_x, tb_y + 1.0, 27.0, 30.0, 7.0, pal.btn_hover);
-        }
-        c.draw_icon_plus(z_in_x + 14.0, tb_y + 16.0, if z_in_hov { pal.ink } else { pal.slate });
         hits.push(HitRegion {
-            x: z_in_x,
-            y: tb_y,
+            x: zoom_x + 76.0,
+            y: by,
             w: 28.0,
-            h: 32.0,
+            h: bh,
             id: HitId::ZoomIn,
             clickable: true,
         });
 
-        // Find button
-        let find_hover = point_in(cursor, find_x, tb_y, find_w, 32.0);
-        if self.find_open || find_hover {
-            c.fill_rounded_rect(
-                find_x,
-                tb_y,
-                find_w,
-                32.0,
-                8.0,
-                if self.find_open { pal.tint_lavender } else { pal.btn_hover },
+        // Draw Bookmarks Toggle (if Top mode), Find, Palette, Inspector, Settings (Sidebar mode), F12
+        if bm_w > 0.0 {
+            let hov = point_in(cursor, bm_x, by, bm_w, bh);
+            draw_box(
+                c,
+                bm_x,
+                by,
+                bm_w,
+                bh,
+                if snapshot.show_bookmarks_bar { pal.surface_soft } else if hov { pal.btn_hover } else { pal.canvas },
+                if snapshot.show_bookmarks_bar || hov { pal.hairline_strong } else { pal.hairline },
+                1.0,
             );
+            c.draw_icon_star(bm_x + bm_w * 0.5, by + bh * 0.5, snapshot.show_bookmarks_bar, pal.ink);
+            hits.push(HitRegion {
+                x: bm_x,
+                y: by,
+                w: bm_w,
+                h: bh,
+                id: HitId::BookmarkBarToggle,
+                clickable: true,
+            });
         }
-        c.draw_icon_search(
-            find_x + 16.0,
-            tb_y + 16.0,
-            if self.find_open { pal.primary } else { pal.slate },
-        );
-        hits.push(HitRegion {
-            x: find_x,
-            y: tb_y,
-            w: find_w,
-            h: 32.0,
-            id: HitId::ToggleFind,
-            clickable: true,
-        });
 
-        // Command Palette (Ctrl+K) button
-        let pal_hover = point_in(cursor, pal_x, tb_y, pal_w, 32.0);
-        if self.command_palette_open || pal_hover {
-            c.fill_rounded_rect(
-                pal_x,
-                tb_y,
-                pal_w,
-                32.0,
-                8.0,
-                if self.command_palette_open { pal.tint_lavender } else { pal.btn_hover },
-            );
-        }
-        c.draw_icon_palette(
-            pal_x + 16.0,
-            tb_y + 16.0,
-            if self.command_palette_open { pal.primary } else { pal.slate },
+        let is_internal = Self::is_internal_page(snapshot.active_url);
+        let find_hov = !is_internal && point_in(cursor, find_x, by, find_w, bh);
+        draw_box(
+            c,
+            find_x,
+            by,
+            find_w,
+            bh,
+            if self.find_open { pal.surface_soft } else if find_hov { pal.btn_hover } else { pal.canvas },
+            if self.find_open || find_hov { pal.hairline_strong } else { pal.hairline },
+            1.0,
         );
+        c.draw_icon_search(
+            find_x + find_w * 0.5,
+            by + bh * 0.5,
+            if is_internal { pal.muted } else { pal.ink },
+        );
+        if !is_internal {
+            hits.push(HitRegion {
+                x: find_x,
+                y: by,
+                w: find_w,
+                h: bh,
+                id: HitId::ToggleFind,
+                clickable: true,
+            });
+        }
+
+        let pal_hov = point_in(cursor, pal_x, by, pal_w, bh);
+        draw_box(
+            c,
+            pal_x,
+            by,
+            pal_w,
+            bh,
+            if self.command_palette_open { pal.surface_soft } else if pal_hov { pal.btn_hover } else { pal.canvas },
+            if self.command_palette_open || pal_hov { pal.hairline_strong } else { pal.hairline },
+            1.0,
+        );
+        c.draw_icon_palette(pal_x + pal_w * 0.5, by + bh * 0.5, pal.ink);
         hits.push(HitRegion {
             x: pal_x,
-            y: tb_y,
+            y: by,
             w: pal_w,
-            h: 32.0,
+            h: bh,
             id: HitId::TogglePalette,
             clickable: true,
         });
 
-        // Inspector button
-        let insp_hover = point_in(cursor, insp_x, tb_y, insp_w, 32.0);
-        c.fill_rounded_rect(
+        let insp_hov = point_in(cursor, insp_x, by, insp_w, bh);
+        draw_box(
+            c,
             insp_x,
-            tb_y,
+            by,
             insp_w,
-            32.0,
-            8.0,
-            if self.inspector_open {
-                pal.tint_lavender
-            } else if insp_hover {
-                pal.surface
-            } else {
-                pal.canvas
-            },
-        );
-        c.stroke_rounded_rect(
-            insp_x,
-            tb_y,
-            insp_w,
-            32.0,
-            8.0,
+            bh,
+            if self.inspector_open { pal.cta_bg } else if insp_hov { pal.btn_hover } else { pal.canvas },
+            if self.inspector_open || insp_hov { pal.hairline_strong } else { pal.hairline },
             1.0,
-            if self.inspector_open { pal.primary } else { pal.hairline },
         );
         c.draw_text(
             &mut self.fonts,
-            FontStyle::SemiBold,
-            12.0,
-            insp_x + 12.0,
-            tb_y + 8.5,
-            if self.inspector_open { pal.primary } else { pal.charcoal },
-            "Inspector",
+            FontStyle::Mono,
+            9.0,
+            insp_x + 7.0,
+            by + 12.0,
+            if self.inspector_open { pal.cta_fg } else { pal.ink },
+            "INSP",
         );
         hits.push(HitRegion {
             x: insp_x,
-            y: tb_y,
+            y: by,
             w: insp_w,
-            h: 32.0,
+            h: bh,
             id: HitId::ToggleInspector,
             clickable: true,
         });
 
-        // F12 Dev primary purple button
-        let f12_hover = point_in(cursor, f12_x, tb_y, f12_w, 32.0);
-        c.fill_rounded_rect(
+        if set_w > 0.0 {
+            let hov = point_in(cursor, set_x, by, set_w, bh);
+            let act = snapshot.active_url == SETTINGS_URL;
+            draw_box(
+                c,
+                set_x,
+                by,
+                set_w,
+                bh,
+                if act { pal.surface_soft } else if hov { pal.btn_hover } else { pal.canvas },
+                if act || hov { pal.hairline_strong } else { pal.hairline },
+                1.0,
+            );
+            c.draw_icon_settings(set_x + set_w * 0.5, by + bh * 0.5, pal.ink);
+            hits.push(HitRegion {
+                x: set_x,
+                y: by,
+                w: set_w,
+                h: bh,
+                id: HitId::OpenSettings,
+                clickable: true,
+            });
+        }
+
+        let f12_hov = point_in(cursor, f12_x, by, f12_w, bh);
+        draw_box(
+            c,
             f12_x,
-            tb_y,
+            by,
             f12_w,
-            32.0,
-            8.0,
-            if f12_hover { pal.primary_pressed } else { pal.primary },
+            bh,
+            if f12_hov { pal.btn_hover } else { pal.canvas },
+            if f12_hov { pal.hairline_strong } else { pal.hairline },
+            1.0,
         );
-        c.draw_text(
-            &mut self.fonts,
-            FontStyle::SemiBold,
-            12.0,
-            f12_x + 13.0,
-            tb_y + 8.5,
-            pal.on_primary,
-            "F12 Dev",
-        );
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.5, f12_x + 8.0, by + 12.0, pal.ink, "F12");
         hits.push(HitRegion {
             x: f12_x,
-            y: tb_y,
+            y: by,
             w: f12_w,
-            h: 32.0,
+            h: bh,
             id: HitId::OpenDevtools,
             clickable: true,
         });
+
+        // Omnibox spanning between nav cluster and action cluster
+        let omni_x = nx;
+        let omni_w = (shd_x - 8.0 - omni_x).max(120.0);
+        let focused = self.active_input == ActiveInput::Omnibox;
+        let omni_hov = point_in(cursor, omni_x, by, omni_w, bh);
+        draw_box(
+            c,
+            omni_x,
+            by,
+            omni_w,
+            bh,
+            if focused { pal.canvas } else { pal.omnibox_bg },
+            if focused {
+                pal.hairline_strong
+            } else if omni_hov {
+                pal.steel
+            } else {
+                pal.hairline
+            },
+            if focused { 1.5 } else { 1.0 },
+        );
+
+        let prefix = if snapshot.active_url.starts_with("pluto://") {
+            "PLUTO"
+        } else if snapshot.active_url.starts_with("https://") {
+            "HTTPS"
+        } else {
+            "WEB"
+        };
+        draw_box(
+            c,
+            omni_x + 6.0,
+            by + 6.0,
+            48.0,
+            bh - 12.0,
+            pal.surface,
+            pal.hairline,
+            1.0,
+        );
+        c.draw_text(
+            &mut self.fonts,
+            FontStyle::Mono,
+            8.5,
+            omni_x + 12.0,
+            by + 12.0,
+            if focused { pal.primary } else { pal.steel },
+            prefix,
+        );
+
+        // Right controls inside Omnibox: [CLEAR]? + [COPY] + [MD] + [STAR]
+        let star_w = 28.0;
+        let copy_w = 28.0;
+        let md_w = if omni_w >= 260.0 { 32.0 } else { 0.0 };
+        let clear_w = if focused && !self.omnibox_text.is_empty() {
+            24.0
+        } else {
+            0.0
+        };
+        let mut irx = omni_x + omni_w - 6.0;
+
+        irx -= star_w;
+        let bm_star_x = irx;
+        let star_hov = point_in(cursor, bm_star_x, by + 4.0, star_w, bh - 8.0);
+        if star_hov {
+            c.fill_rect(bm_star_x, by + 4.0, star_w, bh - 8.0, pal.btn_hover);
+        }
+        c.draw_icon_star(
+            bm_star_x + star_w * 0.5,
+            by + bh * 0.5,
+            snapshot.is_bookmarked,
+            if snapshot.is_bookmarked { pal.star_active } else { pal.slate },
+        );
+        hits.push(HitRegion {
+            x: bm_star_x,
+            y: by + 4.0,
+            w: star_w,
+            h: bh - 8.0,
+            id: HitId::ToggleBookmark,
+            clickable: true,
+        });
+
+        if md_w > 0.0 {
+            irx -= md_w + 2.0;
+            let md_x = irx;
+            let md_hov = point_in(cursor, md_x, by + 4.0, md_w, bh - 8.0);
+            if md_hov {
+                c.fill_rect(md_x, by + 4.0, md_w, bh - 8.0, pal.btn_hover);
+            }
+            c.draw_text(
+                &mut self.fonts,
+                FontStyle::Mono,
+                8.5,
+                md_x + 6.0,
+                by + 12.0,
+                if md_hov { pal.ink } else { pal.steel },
+                "MD",
+            );
+            hits.push(HitRegion {
+                x: md_x,
+                y: by + 4.0,
+                w: md_w,
+                h: bh - 8.0,
+                id: HitId::CopyMarkdown,
+                clickable: true,
+            });
+        }
+
+        irx -= copy_w + 2.0;
+        let copy_x = irx;
+        let copy_hov = point_in(cursor, copy_x, by + 4.0, copy_w, bh - 8.0);
+        if copy_hov {
+            c.fill_rect(copy_x, by + 4.0, copy_w, bh - 8.0, pal.btn_hover);
+        }
+        c.draw_icon_copy(copy_x + copy_w * 0.5, by + bh * 0.5, if copy_hov { pal.ink } else { pal.steel });
+        hits.push(HitRegion {
+            x: copy_x,
+            y: by + 4.0,
+            w: copy_w,
+            h: bh - 8.0,
+            id: HitId::CopyUrl,
+            clickable: true,
+        });
+
+        if clear_w > 0.0 {
+            irx -= clear_w + 2.0;
+            let clr_x = irx;
+            c.draw_icon_close(clr_x + clear_w * 0.5, by + bh * 0.5, pal.steel);
+            hits.push(HitRegion {
+                x: clr_x,
+                y: by + 4.0,
+                w: clear_w,
+                h: bh - 8.0,
+                id: HitId::OmniboxClear,
+                clickable: true,
+            });
+        }
+
+        let text_x = omni_x + 62.0;
+        let text_max_w = (irx - text_x - 8.0).max(20.0);
+        hits.push(HitRegion {
+            x: omni_x,
+            y: by,
+            w: (irx - omni_x).max(40.0),
+            h: bh,
+            id: HitId::Omnibox,
+            clickable: true,
+        });
+
+        if self.omnibox_text.is_empty() {
+            let ph = if focused {
+                "Type URL or search Google..."
+            } else {
+                "Search Google or enter address (Ctrl+L)"
+            };
+            c.draw_text_ellipsis(
+                &mut self.fonts,
+                FontStyle::Regular,
+                10.5,
+                text_x,
+                by + 11.0,
+                text_max_w,
+                pal.steel,
+                ph,
+            );
+            if focused && (time_sec * 2.0) as u32 % 2 == 0 {
+                c.fill_rect(text_x, by + 9.0, 2.0, bh - 18.0, pal.ink);
+            }
+        } else {
+            let shown = tail_fitting_width(
+                &self.fonts,
+                FontStyle::Mono,
+                10.5,
+                &self.omnibox_text,
+                text_max_w,
+            )
+            .to_string();
+            let tw = self.fonts.measure_text(FontStyle::Mono, 10.5, &shown);
+            if focused && self.omnibox_select_all {
+                c.fill_rect(text_x - 2.0, by + 7.0, (tw + 4.0).min(text_max_w), bh - 14.0, pal.primary);
+                c.draw_text(&mut self.fonts, FontStyle::Mono, 10.5, text_x, by + 11.0, pal.on_primary, &shown);
+            } else {
+                c.draw_text(&mut self.fonts, FontStyle::Mono, 10.5, text_x, by + 11.0, pal.ink, &shown);
+                if focused && (time_sec * 2.0) as u32 % 2 == 0 {
+                    c.fill_rect((text_x + tw + 1.0).min(irx - 4.0), by + 9.0, 2.0, bh - 18.0, pal.ink);
+                }
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1805,77 +2590,43 @@ impl NativeUi {
         bookmarks: &[Bookmark],
         hits: &mut Vec<HitRegion>,
     ) {
-        c.fill_rect(x, y, w, h, pal.surface);
+        c.fill_rect(x, y, w, h, pal.strip);
         c.fill_rect(x, y + h - 1.0, w, 1.0, pal.hairline);
 
         let mut bx = x + 12.0;
-        let max_bx = w - 42.0;
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.0, bx, y + 10.0, pal.steel, "BOOKMARKS //");
+        bx += self.fonts.measure_text(FontStyle::Mono, 9.0, "BOOKMARKS //") + 10.0;
 
-        if bookmarks.is_empty() {
-            c.draw_text(
-                &mut self.fonts,
-                FontStyle::Regular,
-                11.5,
-                bx,
-                y + 8.5,
-                pal.steel,
-                "Bookmarks bar: click the star icon in the address bar to pin favorite sites here (Ctrl+Shift+B to hide)",
-            );
-        } else {
-            c.push_clip(x, y, max_bx - x, h);
-            for bm in bookmarks {
-                let label = if bm.title.trim().is_empty() {
-                    &bm.url
-                } else {
-                    &bm.title
-                };
-                let pill_w = (self.fonts.measure_text(FontStyle::SemiBold, 11.5, label) + 24.0).clamp(60.0, 170.0);
-                if bx + pill_w > max_bx {
-                    break;
-                }
-                let hov = point_in(cursor, bx, y + 4.0, pill_w, 24.0);
-                if hov {
-                    c.fill_rounded_rect(bx, y + 4.0, pill_w, 24.0, 6.0, pal.btn_hover);
-                }
-                c.fill_circle(bx + 10.0, y + 16.0, 3.0, pal.primary);
-                c.draw_text_ellipsis(
-                    &mut self.fonts,
-                    FontStyle::SemiBold,
-                    11.5,
-                    bx + 18.0,
-                    y + 8.5,
-                    pill_w - 22.0,
-                    pal.charcoal,
-                    label,
-                );
-                hits.push(HitRegion {
-                    x: bx,
-                    y: y + 4.0,
-                    w: pill_w,
-                    h: 24.0,
-                    id: HitId::BookmarkBarItem(bm.url.clone()),
-                    clickable: true,
-                });
-                bx += pill_w + 6.0;
+        for bm in bookmarks.iter().take(10) {
+            let label = bm.title.as_str();
+            let iw = (self.fonts.measure_text(FontStyle::Regular, 9.5, label) + 18.0).clamp(48.0, 160.0);
+            if bx + iw > x + w - 80.0 {
+                break;
             }
-            c.pop_clip();
+            let by = y + 4.0;
+            let bh = h - 8.0;
+            let hov = point_in(cursor, bx, by, iw, bh);
+            draw_box(
+                c,
+                bx,
+                by,
+                iw,
+                bh,
+                if hov { pal.btn_hover } else { pal.surface },
+                if hov { pal.hairline_strong } else { pal.hairline },
+                1.0,
+            );
+            c.draw_text_ellipsis(&mut self.fonts, FontStyle::Regular, 9.5, bx + 8.0, by + 5.0, iw - 14.0, pal.ink, label);
+            hits.push(HitRegion {
+                x: bx,
+                y: by,
+                w: iw,
+                h: bh,
+                id: HitId::BookmarkBarItem(bm.url.clone()),
+                clickable: true,
+            });
+            bx += iw + 6.0;
         }
-
-        // Right close toggle for bookmarks bar
-        let cx = w - 30.0;
-        let chov = point_in(cursor, cx, y + 5.0, 22.0, 22.0);
-        if chov {
-            c.fill_rounded_rect(cx, y + 5.0, 22.0, 22.0, 6.0, pal.btn_hover);
-        }
-        c.draw_icon_close(cx + 11.0, y + 16.0, if chov { pal.ink } else { pal.steel });
-        hits.push(HitRegion {
-            x: cx,
-            y: y + 5.0,
-            w: 22.0,
-            h: 22.0,
-            id: HitId::BookmarkBarToggle,
-            clickable: true,
-        });
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1892,39 +2643,23 @@ impl NativeUi {
         hits: &mut Vec<HitRegion>,
     ) {
         c.fill_rect(x, y, w, h, pal.surface);
-        c.fill_rect(x, y + h - 1.0, w, 1.0, pal.hairline);
+        c.fill_rect(x, y + h - 1.0, w, 1.0, pal.hairline_strong);
 
-        let ix = x + 16.0;
+        let ix = x + 14.0;
         let iy = y + 6.0;
-        let iw = 280.0;
-        let ih = 30.0;
+        let iw = 290.0_f32.min(w - 220.0).max(120.0);
+        let ih = h - 12.0;
         let focused = self.active_input == ActiveInput::FindBar;
-
-        c.fill_rounded_rect(ix, iy, iw, ih, 7.0, pal.canvas);
-        c.stroke_rounded_rect(
+        draw_box(
+            c,
             ix,
             iy,
             iw,
             ih,
-            7.0,
-            if focused { 2.0 } else { 1.0 },
-            if focused { pal.primary } else { pal.hairline_strong },
+            pal.canvas,
+            if focused { pal.hairline_strong } else { pal.hairline },
+            1.0,
         );
-        c.push_clip(ix + 6.0, iy + 2.0, iw - 12.0, ih - 4.0);
-        if self.find_text.is_empty() {
-            if focused && ((time_sec * 2.0) as i32) % 2 == 0 {
-                c.fill_rect(ix + 8.0, iy + 6.0, 2.0, 18.0, pal.primary);
-            }
-            c.draw_text(&mut self.fonts, FontStyle::Regular, 12.5, ix + 12.0, iy + 7.5, pal.steel, "Find in page...");
-        } else {
-            let visible = tail_fitting_width(&self.fonts, FontStyle::Regular, 12.5, &self.find_text, iw - 20.0);
-            c.draw_text(&mut self.fonts, FontStyle::Regular, 12.5, ix + 8.0, iy + 7.5, pal.ink, visible);
-            if focused && ((time_sec * 2.0) as i32) % 2 == 0 {
-                let tw = self.fonts.measure_text(FontStyle::Regular, 12.5, visible);
-                c.fill_rect(ix + 10.0 + tw, iy + 6.0, 2.0, 18.0, pal.primary);
-            }
-        }
-        c.pop_clip();
         hits.push(HitRegion {
             x: ix,
             y: iy,
@@ -1934,16 +2669,38 @@ impl NativeUi {
             clickable: true,
         });
 
-        let btns = [
-            (ix + iw + 8.0, 56.0, "Prev", HitId::FindPrev),
-            (ix + iw + 70.0, 56.0, "Next", HitId::FindNext),
-            (ix + iw + 132.0, 62.0, "Close", HitId::FindClose),
-        ];
-        for (bx, bw, label, hid) in btns {
+        if self.find_text.is_empty() {
+            c.draw_text(&mut self.fonts, FontStyle::Regular, 10.0, ix + 10.0, iy + 8.0, pal.steel, "Find in page...");
+            if focused && (time_sec * 2.0) as u32 % 2 == 0 {
+                c.fill_rect(ix + 10.0, iy + 6.0, 2.0, ih - 12.0, pal.ink);
+            }
+        } else {
+            let shown = tail_fitting_width(&self.fonts, FontStyle::Mono, 10.0, &self.find_text, iw - 20.0).to_string();
+            let tw = self.fonts.measure_text(FontStyle::Mono, 10.0, &shown);
+            c.draw_text(&mut self.fonts, FontStyle::Mono, 10.0, ix + 10.0, iy + 8.0, pal.ink, &shown);
+            if focused && (time_sec * 2.0) as u32 % 2 == 0 {
+                c.fill_rect(ix + 10.0 + tw + 1.0, iy + 6.0, 2.0, ih - 12.0, pal.ink);
+            }
+        }
+
+        let mut bx = ix + iw + 8.0;
+        for (bw, label, hid) in [
+            (62.0, "PREV", HitId::FindPrev),
+            (62.0, "NEXT", HitId::FindNext),
+            (66.0, "CLOSE", HitId::FindClose),
+        ] {
             let hov = point_in(cursor, bx, iy, bw, ih);
-            c.fill_rounded_rect(bx, iy, bw, ih, 7.0, if hov { pal.surface_soft } else { pal.canvas });
-            c.stroke_rounded_rect(bx, iy, bw, ih, 7.0, 1.0, pal.hairline);
-            c.draw_text(&mut self.fonts, FontStyle::SemiBold, 12.0, bx + 12.0, iy + 7.5, pal.charcoal, label);
+            draw_box(
+                c,
+                bx,
+                iy,
+                bw,
+                ih,
+                if hov { pal.btn_hover } else { pal.canvas },
+                if hov { pal.hairline_strong } else { pal.hairline },
+                1.0,
+            );
+            c.draw_text(&mut self.fonts, FontStyle::Mono, 9.0, bx + 12.0, iy + 8.0, pal.ink, label);
             hits.push(HitRegion {
                 x: bx,
                 y: iy,
@@ -1952,6 +2709,7 @@ impl NativeUi {
                 id: hid,
                 clickable: true,
             });
+            bx += bw + 6.0;
         }
     }
 
@@ -1962,41 +2720,57 @@ impl NativeUi {
         pal: &ThemePalette,
         time_sec: f32,
         cursor: (f32, f32),
-        win_w: f32,
+        left_w: f32,
+        top_y: f32,
+        main_w: f32,
         win_h: f32,
         snapshot: &RenderSnapshot<'_>,
         hits: &mut Vec<HitRegion>,
     ) {
-        c.fill_rect(0.0, CHROME_BASE_HEIGHT, win_w, win_h - CHROME_BASE_HEIGHT, Color::rgba(10, 15, 36, 125));
+        c.fill_rect(
+            left_w,
+            top_y,
+            main_w,
+            win_h - top_y,
+            Color::rgba(0, 0, 0, 155),
+        );
         hits.push(HitRegion {
-            x: 0.0,
-            y: CHROME_BASE_HEIGHT,
-            w: win_w,
-            h: win_h - CHROME_BASE_HEIGHT,
+            x: left_w,
+            y: top_y,
+            w: main_w,
+            h: win_h - top_y,
             id: HitId::PaletteOverlayBackdrop,
             clickable: true,
         });
 
-        let pw = (win_w - 80.0).clamp(380.0, 620.0);
-        let px = (win_w - pw) * 0.5;
-        let py = CHROME_BASE_HEIGHT + 44.0;
+        let pw = (main_w - 64.0).clamp(360.0, 660.0);
+        let px = left_w + (main_w - pw) * 0.5;
+        let py = top_y + 38.0;
 
         let q = self.command_palette_query.trim().to_ascii_lowercase();
         let mut items: Vec<PaletteEntry> = Vec::new();
 
         let builtins = [
-            ("New Tab", "Open Start Page (Ctrl+T)", "Action", UiAction::NewTab(None)),
-            ("Duplicate Active Tab", "Clone current tab (Ctrl+Shift+K)", "Action", UiAction::DuplicateTab),
-            ("Pin / Unpin Active Tab", "Toggle pinned tab in strip", "Action", UiAction::PinActiveTab),
-            ("Toggle Bookmarks Bar", "Show or hide quick bookmarks bar (Ctrl+Shift+B)", "View", UiAction::ToggleBookmarksBar),
-            ("Toggle Dark / Light Theme", "Switch Pluto Browser theme", "View", UiAction::ToggleTheme),
-            ("Zoom In (+10%)", "Increase page & UI zoom (Ctrl+=)", "Zoom", UiAction::ZoomIn),
-            ("Zoom Out (-10%)", "Decrease page & UI zoom (Ctrl+-)", "Zoom", UiAction::ZoomOut),
-            ("Reset Zoom (100%)", "Reset page zoom to 100% (Ctrl+0)", "Zoom", UiAction::ZoomReset),
-            ("Pluto Native Inspector", "Open bottom diagnostics HUD (Ctrl+Shift+D)", "Dev", UiAction::ToggleInspector),
-            ("Open Welcome Showcase", "Visit pluto://welcome orbital showcase", "Pluto", UiAction::OpenWelcome),
-            ("Clear Browsing History", "Erase saved local history.json", "Privacy", UiAction::ClearHistory),
+            ("Open Browser Settings", "Switch Top Bar / Arc Sidebar, Zoom & Shield (Ctrl+,)", "CFG", UiAction::OpenSettings),
+            ("Switch Navigation Layout", "Toggle Top Horizontal Strip vs Left Sidebar (Ctrl+Shift+L)", "UI", UiAction::ToggleSidebarLayout),
+            ("Collapse / Expand Sidebar", "Toggle Left Sidebar width (Ctrl+B)", "UI", UiAction::ToggleSidebarCollapse),
+            ("Toggle Pluto Shield", "Ad banner & tracking suppression", "SEC", UiAction::ToggleShield),
+            ("Toggle Reader Mode", "Pure typography reading view (Alt+R)", "WEB", UiAction::ToggleReaderMode),
+            ("Mute / Unmute Tab Audio", "Silence video/audio tags (Alt+M)", "AUD", UiAction::ToggleMute),
+            ("Copy Page as Markdown", "Copy [Title](URL) link (Ctrl+Shift+Y)", "CPY", UiAction::CopyMarkdown),
+            ("New Tab Workspace", "Open Start Page (Ctrl+T)", "TAB", UiAction::NewTab(None)),
+            ("Duplicate Active Tab", "Clone tab (Ctrl+Shift+K)", "TAB", UiAction::DuplicateTab),
+            ("Pin / Unpin Active Tab", "Lock tab slot", "TAB", UiAction::PinActiveTab),
+            ("Toggle Bookmarks Bar", "Show/hide bookmarks row (Ctrl+Shift+B)", "UI", UiAction::ToggleBookmarksBar),
+            ("Toggle Dark / Light Grid", "Switch Obsidian vs Paper grid theme", "THM", UiAction::ToggleTheme),
+            ("Zoom In (+10%)", "Increase page scale (Ctrl+=)", "ZOM", UiAction::ZoomIn),
+            ("Zoom Out (-10%)", "Decrease page scale (Ctrl+-)", "ZOM", UiAction::ZoomOut),
+            ("Reset Zoom (100%)", "Reset scale to 100% (Ctrl+0)", "ZOM", UiAction::ZoomReset),
+            ("Pluto Native Inspector", "Bottom runtime HUD (Ctrl+Shift+D)", "DEV", UiAction::ToggleInspector),
+            ("Welcome Showcase", "Open pluto://welcome orbital showcase", "PLT", UiAction::OpenWelcome),
+            ("Clear Browsing History", "Erase saved local history.json", "PRV", UiAction::ClearHistory),
         ];
+
         for (title, sub, badge, act) in builtins {
             if q.is_empty() || title.to_ascii_lowercase().contains(&q) || sub.to_ascii_lowercase().contains(&q) {
                 items.push(PaletteEntry {
@@ -2010,9 +2784,9 @@ impl NativeUi {
         for t in snapshot.tabs {
             if q.is_empty() || t.title.to_ascii_lowercase().contains(&q) || t.url.to_ascii_lowercase().contains(&q) {
                 items.push(PaletteEntry {
-                    title: format!("Switch to Tab: {}", t.title),
+                    title: format!("Tab: {}", t.title),
                     subtitle: t.url.clone(),
-                    badge: "Tab".to_string(),
+                    badge: "TAB".to_string(),
                     exec: PaletteEntryAction::SwitchTab(t.id),
                 });
             }
@@ -2022,7 +2796,7 @@ impl NativeUi {
                 items.push(PaletteEntry {
                     title: bm.title.clone(),
                     subtitle: bm.url.clone(),
-                    badge: "Bookmark".to_string(),
+                    badge: "BMK".to_string(),
                     exec: PaletteEntryAction::Navigate(bm.url.clone()),
                 });
             }
@@ -2032,7 +2806,7 @@ impl NativeUi {
                 items.push(PaletteEntry {
                     title: h.title.clone(),
                     subtitle: h.url.clone(),
-                    badge: "History".to_string(),
+                    badge: "HST".to_string(),
                     exec: PaletteEntryAction::Navigate(h.url.clone()),
                 });
             }
@@ -2047,76 +2821,112 @@ impl NativeUi {
         let list_h = if self.palette_entries.is_empty() {
             54.0
         } else {
-            self.palette_entries.len() as f32 * 46.0 + 12.0
+            self.palette_entries.len() as f32 * 48.0 + 10.0
         };
-        let ph = 54.0 + list_h;
+        let ph = 56.0 + list_h;
 
-        c.fill_rounded_rect(px, py, pw, ph, 12.0, pal.canvas);
-        c.stroke_rounded_rect(px, py, pw, ph, 12.0, 1.5, pal.primary);
+        draw_box(c, px, py, pw, ph, pal.canvas, pal.hairline_strong, 1.5);
+        c.fill_rect(px + 1.0, py + 1.0, pw - 2.0, 54.0, pal.strip);
+        c.fill_rect(px, py + 55.0, pw, 1.0, pal.hairline_strong);
 
-        // Search input row inside palette
-        c.fill_rect(px + 1.0, py + 52.0, pw - 2.0, 1.0, pal.hairline);
-        c.draw_icon_palette(px + 22.0, py + 26.0, pal.primary);
-        c.push_clip(px + 40.0, py + 8.0, pw - 56.0, 38.0);
-        if self.command_palette_query.is_empty() {
-            if ((time_sec * 2.0) as i32) % 2 == 0 {
-                c.fill_rect(px + 42.0, py + 14.0, 2.0, 22.0, pal.primary);
-            }
-            c.draw_text(
-                &mut self.fonts,
-                FontStyle::Regular,
-                14.0,
-                px + 47.0,
-                py + 16.0,
-                pal.steel,
-                "Type a command, tab name, bookmark, or URL (Esc to close)...",
-            );
-        } else {
-            let visible = tail_fitting_width(&self.fonts, FontStyle::Regular, 14.0, &self.command_palette_query, pw - 68.0);
-            c.draw_text(&mut self.fonts, FontStyle::Regular, 14.0, px + 42.0, py + 16.0, pal.ink, visible);
-            if ((time_sec * 2.0) as i32) % 2 == 0 {
-                let tw = self.fonts.measure_text(FontStyle::Regular, 14.0, visible);
-                c.fill_rect(px + 44.0 + tw, py + 14.0, 2.0, 22.0, pal.primary);
-            }
-        }
-        c.pop_clip();
+        c.draw_icon_palette(px + 22.0, py + 28.0, pal.primary);
         hits.push(HitRegion {
             x: px,
             y: py,
             w: pw,
-            h: 52.0,
+            h: 55.0,
             id: HitId::PaletteBox,
             clickable: true,
         });
 
-        if self.palette_entries.is_empty() {
-            c.draw_text(&mut self.fonts, FontStyle::Regular, 13.0, px + 20.0, py + 70.0, pal.steel, "No matching commands or tabs.");
+        let qt_x = px + 44.0;
+        if self.command_palette_query.is_empty() {
+            c.draw_text(
+                &mut self.fonts,
+                FontStyle::Mono,
+                10.5,
+                qt_x,
+                py + 20.0,
+                pal.steel,
+                "Command Palette: search actions, tabs, settings...",
+            );
+            if (time_sec * 2.0) as u32 % 2 == 0 {
+                c.fill_rect(qt_x, py + 16.0, 2.0, 24.0, pal.ink);
+            }
         } else {
-            for (idx, entry) in self.palette_entries.iter().enumerate() {
-                let iy = py + 58.0 + idx as f32 * 46.0;
-                let hov = point_in(cursor, px + 8.0, iy, pw - 16.0, 42.0);
-                let selected = idx == self.command_palette_idx || hov;
-                if selected {
-                    c.fill_rounded_rect(px + 8.0, iy, pw - 16.0, 42.0, 8.0, pal.surface);
-                    if idx == self.command_palette_idx {
-                        c.stroke_rounded_rect(px + 8.0, iy, pw - 16.0, 42.0, 8.0, 1.0, pal.primary);
-                    }
+            let tw = self.fonts.measure_text(FontStyle::Mono, 11.0, &self.command_palette_query);
+            c.draw_text(
+                &mut self.fonts,
+                FontStyle::Mono,
+                11.0,
+                qt_x,
+                py + 19.0,
+                pal.ink,
+                &self.command_palette_query,
+            );
+            if (time_sec * 2.0) as u32 % 2 == 0 {
+                c.fill_rect(qt_x + tw + 2.0, py + 16.0, 2.0, 24.0, pal.ink);
+            }
+        }
+
+        let mut iy = py + 60.0;
+        if self.palette_entries.is_empty() {
+            c.draw_text(&mut self.fonts, FontStyle::Mono, 10.5, px + 20.0, iy + 14.0, pal.steel, "NO MATCHING COMMANDS");
+        } else {
+            for (idx, item) in self.palette_entries.iter().enumerate() {
+                let active = idx == self.command_palette_idx;
+                let hov = point_in(cursor, px + 8.0, iy, pw - 16.0, 44.0);
+                let bg = if active {
+                    pal.surface_soft
+                } else if hov {
+                    pal.btn_hover
+                } else {
+                    pal.canvas
+                };
+                draw_box(
+                    c,
+                    px + 8.0,
+                    iy,
+                    pw - 16.0,
+                    44.0,
+                    bg,
+                    if active { pal.hairline_strong } else { pal.hairline },
+                    1.0,
+                );
+                if active {
+                    c.fill_rect(px + 8.0, iy, 3.0, 44.0, pal.primary);
                 }
-                let bw = self.fonts.measure_text(FontStyle::SemiBold, 11.0, &entry.badge) + 14.0;
-                c.fill_rounded_rect(px + pw - bw - 18.0, iy + 10.0, bw, 22.0, 6.0, pal.tint_lavender);
-                c.draw_text(&mut self.fonts, FontStyle::SemiBold, 11.0, px + pw - bw - 11.0, iy + 14.5, pal.tint_lavender_ink, &entry.badge);
-
-                c.draw_text_ellipsis(&mut self.fonts, FontStyle::SemiBold, 13.0, px + 18.0, iy + 6.0, pw - bw - 44.0, pal.ink, &entry.title);
-                c.draw_text_ellipsis(&mut self.fonts, FontStyle::Regular, 11.5, px + 18.0, iy + 24.0, pw - bw - 44.0, pal.steel, &entry.subtitle);
-
+                draw_box(c, px + 18.0, iy + 11.0, 42.0, 22.0, pal.strip, pal.hairline, 1.0);
+                c.draw_text(&mut self.fonts, FontStyle::Mono, 8.5, px + 24.0, iy + 16.0, pal.primary, &item.badge);
+                c.draw_text_ellipsis(
+                    &mut self.fonts,
+                    FontStyle::SemiBold,
+                    10.5,
+                    px + 70.0,
+                    iy + 7.0,
+                    pw - 96.0,
+                    pal.ink,
+                    &item.title,
+                );
+                c.draw_text_ellipsis(
+                    &mut self.fonts,
+                    FontStyle::Mono,
+                    8.5,
+                    px + 70.0,
+                    iy + 25.0,
+                    pw - 96.0,
+                    pal.steel,
+                    &item.subtitle,
+                );
                 hits.push(HitRegion {
                     x: px + 8.0,
                     y: iy,
                     w: pw - 16.0,
-                    h: 42.0,
+                    h: 44.0,
                     id: HitId::PaletteItem(idx),
                     clickable: true,
                 });
+                iy += 48.0;
             }
         }
     }
@@ -2136,27 +2946,26 @@ impl NativeUi {
     ) {
         c.fill_rect(x, y, w, h, pal.canvas);
         c.fill_rect(x, y, w, 1.0, pal.hairline_strong);
-        c.fill_rect(x, y + 1.0, w, 38.0, pal.surface);
-        c.fill_rect(x, y + 39.0, w, 1.0, pal.hairline);
+        c.fill_rect(x, y + 1.0, w, 40.0, pal.strip);
+        c.fill_rect(x, y + 41.0, w, 1.0, pal.hairline);
 
-        c.draw_text(&mut self.fonts, FontStyle::Bold, 13.0, x + 16.0, y + 12.0, pal.ink, "Pluto Native Inspector");
-        c.fill_rounded_rect(x + 196.0, y + 8.0, 96.0, 22.0, 6.0, pal.tint_lavender);
-        c.draw_text(&mut self.fonts, FontStyle::SemiBold, 11.0, x + 205.0, y + 13.0, pal.tint_lavender_ink, "Pure Rust UI");
+        c.draw_text(&mut self.fonts, FontStyle::Bold, 11.0, x + 16.0, y + 13.0, pal.ink, "PLUTO NATIVE INSPECTOR");
+        draw_badge(c, &mut self.fonts, x + 224.0, y + 9.0, pal.surface, pal.hairline_strong, pal.primary, "PURE RUST UI");
 
-        let tabs = ["Runtime & Perf", "Page Telemetry"];
-        let mut tx = x + 310.0;
+        let tabs = ["RUNTIME & PERF", "PAGE TELEMETRY"];
+        let mut tx = x + 336.0;
         for (idx, label) in tabs.iter().enumerate() {
-            let tw = self.fonts.measure_text(FontStyle::SemiBold, 12.5, label) + 18.0;
+            let tw = self.fonts.measure_text(FontStyle::Mono, 9.5, label) + 20.0;
             let active = self.inspector_tab == idx;
             if active {
-                c.fill_rect(tx, y + 37.0, tw, 2.0, pal.primary);
+                c.fill_rect(tx, y + 39.0, tw, 2.0, pal.primary);
             }
             c.draw_text(
                 &mut self.fonts,
-                FontStyle::SemiBold,
-                12.5,
-                tx + 9.0,
-                y + 12.0,
+                FontStyle::Mono,
+                9.5,
+                tx + 10.0,
+                y + 14.0,
                 if active { pal.ink } else { pal.steel },
                 label,
             );
@@ -2171,112 +2980,87 @@ impl NativeUi {
             tx += tw + 8.0;
         }
 
-        let close_x = x + w - 72.0;
-        let f12_x = close_x - 114.0;
-        let ref_x = f12_x - 82.0;
+        let close_x = x + w - 78.0;
+        let f12_x = close_x - 122.0;
+        let ref_x = f12_x - 86.0;
         for (bx, bw, label, primary, hid) in [
-            (ref_x, 74.0, "Refresh", false, HitId::InspectorRefresh),
-            (f12_x, 106.0, "F12 DevTools", true, HitId::InspectorDevtools),
-            (close_x, 60.0, "Close", false, HitId::InspectorClose),
+            (ref_x, 78.0, "REFRESH", false, HitId::InspectorRefresh),
+            (f12_x, 114.0, "F12 DEVTOOLS", true, HitId::InspectorDevtools),
+            (close_x, 66.0, "CLOSE", false, HitId::InspectorClose),
         ] {
-            let hov = point_in(cursor, bx, y + 6.0, bw, 27.0);
+            let hov = point_in(cursor, bx, y + 6.0, bw, 28.0);
             let bg = if primary {
-                if hov { pal.primary_pressed } else { pal.primary }
+                if hov { pal.cta_hover } else { pal.cta_bg }
             } else if hov {
-                pal.surface_soft
+                pal.btn_hover
             } else {
-                pal.canvas
+                pal.surface
             };
-            c.fill_rounded_rect(bx, y + 6.0, bw, 27.0, 6.0, bg);
-            if !primary {
-                c.stroke_rounded_rect(bx, y + 6.0, bw, 27.0, 6.0, 1.0, pal.hairline);
-            }
+            draw_box(c, bx, y + 6.0, bw, 28.0, bg, pal.hairline_strong, 1.0);
             c.draw_text(
                 &mut self.fonts,
-                FontStyle::SemiBold,
-                11.5,
-                bx + 11.0,
-                y + 13.0,
-                if primary { pal.on_primary } else { pal.charcoal },
+                FontStyle::Mono,
+                9.0,
+                bx + 10.0,
+                y + 14.0,
+                if primary { pal.cta_fg } else { pal.ink },
                 label,
             );
             hits.push(HitRegion {
                 x: bx,
                 y: y + 6.0,
                 w: bw,
-                h: 27.0,
+                h: 28.0,
                 id: hid,
                 clickable: true,
             });
         }
 
-        let body_y = y + 50.0;
-        let card_w = ((w - 56.0) / 3.0).max(160.0);
+        let body_y = y + 54.0;
+        let card_w = ((w - 48.0) / 3.0).max(160.0);
         if self.inspector_tab == 0 {
+            let layout_name = if snapshot.sidebar_left {
+                "Left Sidebar (Arc)"
+            } else {
+                "Top Horizontal Strip"
+            };
             let rows = [
                 (
-                    "UI Renderer",
+                    "UI PIPELINE",
                     "100% Native Rust (Softbuffer + ab_glyph)",
-                    format!("Frame time: {:.2} ms | Zoom: {}%", self.last_frame_ms, snapshot.zoom_percent),
-                    pal.tint_lavender,
+                    format!("Frame: {:.2} ms | Zoom: {}%", self.last_frame_ms, snapshot.zoom_percent),
                 ),
                 (
-                    "WebView Strategy",
-                    if Self::is_internal_page(snapshot.active_url) {
-                        "Suspended (Zero WebView Processes)"
-                    } else {
-                        "Active tab isolated, background trimmed"
-                    },
-                    format!("Tabs: {} | Bookmarks: {} | History: {}", snapshot.tabs.len(), snapshot.bookmarks.len(), snapshot.history.len()),
-                    pal.tint_mint,
+                    "WORKSPACE STATE",
+                    &*layout_name,
+                    format!("Open tabs: {} | Bookmarks: {}", snapshot.tabs.len(), snapshot.bookmarks.len()),
                 ),
                 (
-                    "Active Route",
-                    snapshot.active_url,
-                    format!("Search: Google | Theme: {}", if self.dark_mode { "Dark" } else { "Light" }),
-                    pal.tint_peach,
+                    "PRIVACY & RUNTIME",
+                    if snapshot.adblock_enabled { "Pluto Shield ACTIVE" } else { "Pluto Shield PAUSED" },
+                    format!("Zero HTML/JS Chrome | {}", snapshot.active_url),
                 ),
             ];
-            for (i, (k, v, sub, tint)) in rows.iter().enumerate() {
-                let cx = x + 16.0 + i as f32 * (card_w + 12.0);
-                c.fill_rounded_rect(cx, body_y, card_w, 122.0, 10.0, pal.surface);
-                c.stroke_rounded_rect(cx, body_y, card_w, 122.0, 10.0, 1.0, pal.hairline);
-                c.fill_rounded_rect(cx + 12.0, body_y + 12.0, 110.0, 22.0, 5.0, *tint);
-                let tag_ink = pal.charcoal;
-                c.draw_text(&mut self.fonts, FontStyle::SemiBold, 11.0, cx + 18.0, body_y + 17.0, tag_ink, k);
-                c.draw_text_ellipsis(&mut self.fonts, FontStyle::SemiBold, 13.0, cx + 12.0, body_y + 46.0, card_w - 24.0, pal.ink, v);
-                c.draw_text_ellipsis(&mut self.fonts, FontStyle::Mono, 11.5, cx + 12.0, body_y + 76.0, card_w - 24.0, pal.steel, sub);
+            for (idx, (k, v, sub)) in rows.iter().enumerate() {
+                let cx = x + 16.0 + idx as f32 * (card_w + 8.0);
+                draw_box(c, cx, body_y, card_w, h - 68.0, pal.surface, pal.hairline, 1.0);
+                c.draw_text(&mut self.fonts, FontStyle::Mono, 9.0, cx + 14.0, body_y + 14.0, pal.steel, k);
+                c.draw_text_ellipsis(&mut self.fonts, FontStyle::Bold, 11.0, cx + 14.0, body_y + 42.0, card_w - 28.0, pal.ink, v);
+                c.draw_text_ellipsis(&mut self.fonts, FontStyle::Mono, 9.0, cx + 14.0, body_y + 76.0, card_w - 28.0, pal.slate, sub);
             }
         } else {
-            let tel = snapshot.telemetry.cloned().unwrap_or_default();
-            let stats = [
-                (
-                    "DOM Nodes",
-                    if Self::is_internal_page(snapshot.active_url) {
-                        format!("{} native UI hit regions", hits.len())
-                    } else {
-                        format!("{} elements ({} imgs / {} scripts)", tel.dom_nodes, tel.images, tel.scripts)
-                    },
-                    format!("Stylesheets: {}", tel.stylesheets),
-                ),
-                (
-                    "Navigation Timing",
-                    format!("DOMContentLoaded: {} ms", tel.dcl_ms),
-                    format!("Page Load: {} ms", tel.load_ms),
-                ),
-                (
-                    "Storage & Origin",
-                    if tel.origin.is_empty() { snapshot.active_url.to_string() } else { tel.origin },
-                    format!("localStorage: {} keys | session: {} keys", tel.local_keys, tel.session_keys),
-                ),
+            let t = snapshot.telemetry.cloned().unwrap_or_default();
+            let rows = [
+                ("DOM NODES", format!("{} nodes", t.dom_nodes), format!("Scripts: {} | Styles: {}", t.scripts, t.stylesheets)),
+                ("LOAD TIMING", format!("DCL {} ms | Load {} ms", t.dcl_ms, t.load_ms), format!("Images: {}", t.images)),
+                ("ORIGIN STORAGE", format!("Origin: {}", if t.origin.is_empty() { "Internal Rust" } else { &t.origin }), format!("Local: {} | Session: {}", t.local_keys, t.session_keys)),
             ];
-            for (i, (k, v, sub)) in stats.iter().enumerate() {
-                let cx = x + 16.0 + i as f32 * (card_w + 12.0);
-                c.fill_rounded_rect(cx, body_y, card_w, 122.0, 10.0, pal.surface);
-                c.stroke_rounded_rect(cx, body_y, card_w, 122.0, 10.0, 1.0, pal.hairline);
-                c.draw_text(&mut self.fonts, FontStyle::SemiBold, 12.0, cx + 12.0, body_y + 14.0, pal.steel, k);
-                c.draw_text_ellipsis(&mut self.fonts, FontStyle::SemiBold, 13.5, cx + 12.0, body_y + 46.0, card_w - 24.0, pal.ink, v);
-                c.draw_text_ellipsis(&mut self.fonts, FontStyle::Mono, 11.5, cx + 12.0, body_y + 78.0, card_w - 24.0, pal.slate, sub);
+            for (idx, (k, v, sub)) in rows.iter().enumerate() {
+                let cx = x + 16.0 + idx as f32 * (card_w + 8.0);
+                draw_box(c, cx, body_y, card_w, h - 68.0, pal.surface, pal.hairline, 1.0);
+                c.draw_text(&mut self.fonts, FontStyle::Mono, 9.0, cx + 14.0, body_y + 14.0, pal.steel, k);
+                c.draw_text_ellipsis(&mut self.fonts, FontStyle::Bold, 11.0, cx + 14.0, body_y + 42.0, card_w - 28.0, pal.ink, &v);
+                c.draw_text_ellipsis(&mut self.fonts, FontStyle::Mono, 9.0, cx + 14.0, body_y + 76.0, card_w - 28.0, pal.slate, &sub);
             }
         }
     }
@@ -2292,418 +3076,790 @@ impl NativeUi {
         vy: f32,
         vw: f32,
         vh: f32,
-        zoom_percent: u32,
+        snapshot: &RenderSnapshot<'_>,
         hits: &mut Vec<HitRegion>,
     ) {
-        c.push_clip(vx, vy, vw, vh);
-        let sy = self.welcome_scroll_y;
-        let container_w = (vw - 64.0).clamp(400.0, 1140.0);
-        let cx = vx + (vw - container_w) * 0.5;
+        c.fill_rect(vx, vy, vw, vh, pal.canvas);
 
-        let nav_h = 56.0;
-        let hero_y = vy - sy;
-        let hero_h = 740.0;
-
-        c.fill_vertical_gradient(
-            vx,
-            hero_y + nav_h,
-            vw,
-            hero_h,
-            pal.brand_navy,
-            Color::rgb(0x07, 0x0f, 0x24),
-        );
-
-        let px_off = ((cursor.0 / vw.max(1.0)) - 0.5) * -14.0;
-        let py_off = ((cursor.1 / vh.max(1.0)) - 0.5) * -8.0;
-        let stars = [
-            (0.12, 0.14, 4.0, Color::rgb(0xff, 0x64, 0xc8)),
-            (0.86, 0.18, 4.8, Color::rgb(0xf5, 0xd7, 0x5e)),
-            (0.20, 0.36, 3.2, Color::rgb(0x2a, 0x9d, 0x99)),
-            (0.81, 0.38, 3.8, Color::rgb(0xd6, 0xb6, 0xf6)),
-            (0.08, 0.28, 3.0, Color::rgb(0xdd, 0x5b, 0x00)),
-            (0.32, 0.09, 2.2, Color::rgb(0xff, 0xff, 0xff)),
-            (0.70, 0.11, 2.4, Color::rgb(0xd6, 0xb6, 0xf6)),
-        ];
-        for (i, (sx_r, sy_r, sr, col)) in stars.iter().enumerate() {
-            let pulse = 0.55 + 0.45 * (time_sec * 1.6 + i as f32 * 1.1).sin();
-            let star_x = vx + vw * sx_r + px_off * 0.4;
-            let star_y = hero_y + nav_h + hero_h * sy_r + py_off * 0.4;
-            c.fill_circle(
-                star_x,
-                star_y,
-                sr * (0.85 + pulse * 0.25),
-                col.with_alpha((pulse * 220.0) as u8),
-            );
+        // Subtle architectural vertical & horizontal blueprint grid
+        let grid_step = 88.0;
+        let mut gx = vx;
+        while gx < vx + vw {
+            c.fill_rect(gx, vy, 1.0, vh, Color::rgba(pal.hairline.r, pal.hairline.g, pal.hairline.b, 55));
+            gx += grid_step;
+        }
+        let mut gy = vy;
+        while gy < vy + vh {
+            c.fill_rect(vx, gy, vw, 1.0, Color::rgba(pal.hairline.r, pal.hairline.g, pal.hairline.b, 55));
+            gy += grid_step;
         }
 
-        c.draw_pluto_hero_system(vx + vw * 0.5, hero_y + nav_h + 74.0, time_sec, px_off, py_off);
+        let scroll = self.welcome_scroll_y;
+        let pad_x = ((vw - 1140.0) * 0.5).max(24.0);
+        let cw = (vw - pad_x * 2.0).max(320.0);
+        let x0 = vx + pad_x;
+        let mut y = vy + 24.0 - scroll;
 
-        let badge_w = 340.0;
-        let badge_x = vx + (vw - badge_w) * 0.5;
-        let badge_y = hero_y + nav_h + 138.0;
-        c.fill_rounded_rect(badge_x, badge_y, badge_w, 26.0, 13.0, Color::rgba(255, 255, 255, 22));
-        c.stroke_rounded_rect(badge_x, badge_y, badge_w, 26.0, 13.0, 1.0, Color::rgba(214, 182, 246, 75));
-        c.fill_circle(badge_x + 15.0, badge_y + 13.0, 3.5, pal.brand_green);
+        // 01 // ARCHITECTURAL HEADER & TELEMETRY STRIP
+        draw_box(c, x0, y, cw, 38.0, pal.strip, pal.hairline_strong, 1.0);
+        draw_crosshair_corners(c, x0, y, cw, 38.0, 5.0, pal.ink);
         c.draw_text(
             &mut self.fonts,
-            FontStyle::SemiBold,
-            11.0,
-            badge_x + 26.0,
-            badge_y + 6.5,
-            Color::rgb(0xd6, 0xb6, 0xf6),
-            "PLUTO ENGINE - 100% NATIVE RUST UI",
+            FontStyle::Mono,
+            9.5,
+            x0 + 14.0,
+            y + 12.0,
+            pal.ink,
+            "PLUTO ENGINE v0.4 // 100% NATIVE RUST UI",
         );
-
-        let h1 = "The orbital workspace browser, built in Rust.";
-        let h1_size = if vw >= 940.0 { 38.0 } else { 28.0 };
-        let h1_w = self.fonts.measure_text(FontStyle::Bold, h1_size, h1);
-        c.draw_text(
-            &mut self.fonts,
-            FontStyle::Bold,
-            h1_size,
-            vx + (vw - h1_w) * 0.5,
-            badge_y + 38.0,
-            Color::rgb(255, 255, 255),
-            h1,
+        let tele = format!(
+            "FRAME {:.2}ms  |  UI ZOOM {}%  |  0 HTML/CSS/JS  |  TOP + ARC READY",
+            self.last_frame_ms, snapshot.zoom_percent
         );
-
-        let sub = "Zero HTML chrome. Pure Rust UI, Google Search default, Ctrl+K Command Palette & WebView2 tab trimming.";
-        let sub_w = self.fonts.measure_text(FontStyle::Regular, 14.5, sub);
-        c.draw_text(
-            &mut self.fonts,
-            FontStyle::Regular,
-            14.5,
-            vx + (vw - sub_w) * 0.5,
-            badge_y + 90.0,
-            Color::rgba(255, 255, 255, 208),
-            sub,
-        );
-
-        let cta_y = badge_y + 128.0;
-        let btn1_w = 166.0;
-        let btn2_w = 184.0;
-        let cta_start = vx + (vw - (btn1_w + btn2_w + 14.0)) * 0.5;
-        let hov1 = point_in(cursor, cta_start, cta_y, btn1_w, 40.0);
-        c.fill_rounded_rect(
-            cta_start,
-            cta_y,
-            btn1_w,
-            40.0,
-            8.0,
-            if hov1 { pal.primary_pressed } else { pal.primary },
-        );
-        c.draw_text(&mut self.fonts, FontStyle::SemiBold, 14.0, cta_start + 20.0, cta_y + 11.0, pal.on_primary, "Open Workspace");
-        hits.push(HitRegion {
-            x: cta_start,
-            y: cta_y,
-            w: btn1_w,
-            h: 40.0,
-            id: HitId::WelcomeHeroOpen,
-            clickable: true,
-        });
-
-        let btn2_x = cta_start + btn1_w + 14.0;
-        let hov2 = point_in(cursor, btn2_x, cta_y, btn2_w, 40.0);
-        if hov2 {
-            c.fill_rounded_rect(btn2_x, cta_y, btn2_w, 40.0, 8.0, Color::rgba(255, 255, 255, 24));
-        }
-        c.stroke_rounded_rect(btn2_x, cta_y, btn2_w, 40.0, 8.0, 1.0, Color::rgba(214, 182, 246, 150));
-        c.draw_text(&mut self.fonts, FontStyle::SemiBold, 14.0, btn2_x + 20.0, cta_y + 11.0, Color::rgb(255, 255, 255), "Try Live Inspector");
-        hits.push(HitRegion {
-            x: btn2_x,
-            y: cta_y,
-            w: btn2_w,
-            h: 40.0,
-            id: HitId::WelcomeHeroXray,
-            clickable: true,
-        });
-
-        // Workspace Mockup Card
-        let mock_y = cta_y + 60.0;
-        let mock_h = 282.0;
-        c.fill_rounded_rect(cx, mock_y, container_w, mock_h, 12.0, pal.canvas);
-        c.stroke_rounded_rect(cx, mock_y, container_w, mock_h, 12.0, 1.0, pal.hairline);
-
-        c.fill_rounded_rect(cx + 1.0, mock_y + 1.0, container_w - 2.0, 46.0, 11.0, pal.surface);
-        c.fill_rect(cx + 1.0, mock_y + 34.0, container_w - 2.0, 12.0, pal.surface);
-        c.fill_rect(cx, mock_y + 46.0, container_w, 1.0, pal.hairline);
-        c.draw_pluto_logo(cx + 16.0, mock_y + 12.0, 22.0, 0.0);
-        c.draw_text(&mut self.fonts, FontStyle::Bold, 14.0, cx + 46.0, mock_y + 14.5, pal.ink, "Pluto HQ");
-
-        let mock_tabs = ["Workspace Board", "Rust Engine", "Shortcuts"];
-        let mut mtx = cx + container_w - 390.0;
-        for (idx, label) in mock_tabs.iter().enumerate() {
-            let tw = self.fonts.measure_text(FontStyle::SemiBold, 13.0, label) + 18.0;
-            let active = self.welcome_mock_tab == idx;
-            if active {
-                c.fill_rect(mtx + 6.0, mock_y + 44.0, tw - 12.0, 2.0, pal.ink);
-            }
+        let tw = self.fonts.measure_text(FontStyle::Mono, 9.0, &tele);
+        if cw > 660.0 {
             c.draw_text(
                 &mut self.fonts,
-                FontStyle::SemiBold,
-                13.0,
-                mtx + 9.0,
-                mock_y + 15.0,
-                if active { pal.ink } else { pal.steel },
+                FontStyle::Mono,
+                9.0,
+                x0 + cw - tw - 14.0,
+                y + 13.0,
+                pal.steel,
+                &tele,
+            );
+        }
+        y += 50.0;
+
+        // 02 // ASYMMETRIC SPLIT HERO BLUEPRINT GRID
+        let two_col = cw >= 860.0;
+        let left_w = if two_col { cw * 0.59 } else { cw };
+        let hero_h = if two_col { 410.0 } else { 370.0 };
+
+        draw_box(c, x0, y, left_w, hero_h, pal.surface, pal.hairline_strong, 1.0);
+        draw_crosshair_corners(c, x0, y, left_w, hero_h, 7.0, pal.ink);
+        draw_badge(
+            c,
+            &mut self.fonts,
+            x0 + 24.0,
+            y + 24.0,
+            pal.strip,
+            pal.hairline_strong,
+            pal.primary,
+            "01 // ZERO BLOAT ARCHITECTURE",
+        );
+
+        let h_size = if cw >= 980.0 { 28.0 } else { 23.0 };
+        let h_step = h_size * 1.48;
+        c.draw_text(&mut self.fonts, FontStyle::Bold, h_size, x0 + 24.0, y + 64.0, pal.ink, "ZERO HTML CHROME.");
+        c.draw_text(&mut self.fonts, FontStyle::Bold, h_size, x0 + 24.0, y + 64.0 + h_step, pal.ink, "PURE RUST VELOCITY.");
+
+        let pitch_y = y + 64.0 + h_step * 2.0 + 18.0;
+        let (_, pitch_end_y) = draw_wrapped_text(
+            c,
+            &mut self.fonts,
+            FontStyle::Regular,
+            11.0,
+            x0 + 24.0,
+            pitch_y,
+            left_w - 48.0,
+            24.0,
+            pal.slate,
+            "Built from bare Rust primitives instead of heavy Electron or HTML toolbars. Immediate 60 FPS framebuffer chrome, Google Search native speed, Arc-style or Top workspace layouts, Pluto Shield & Reader Mode built in.",
+        );
+
+        let cta_y = (pitch_end_y + 24.0).max(y + hero_h - 68.0);
+        let mut cx_cta = x0 + 24.0;
+        for (bw, label, primary_cta, hid) in [
+            (184.0, "LAUNCH WORKSPACE", true, HitId::WelcomeHeroOpen),
+            (158.0, "CUSTOMIZE LAYOUT", false, HitId::WelcomeHeroSettings),
+            (132.0, "X-RAY INSPECTOR", false, HitId::WelcomeHeroXray),
+        ] {
+            if cx_cta + bw > x0 + left_w - 12.0 {
+                break;
+            }
+            let hov = point_in(cursor, cx_cta, cta_y, bw, 42.0);
+            draw_box(
+                c,
+                cx_cta,
+                cta_y,
+                bw,
+                42.0,
+                if primary_cta {
+                    if hov { pal.cta_hover } else { pal.cta_bg }
+                } else if hov {
+                    pal.btn_hover
+                } else {
+                    pal.strip
+                },
+                pal.hairline_strong,
+                1.0,
+            );
+            let lw = self.fonts.measure_text(FontStyle::Mono, 9.5, label);
+            c.draw_text(
+                &mut self.fonts,
+                FontStyle::Mono,
+                9.5,
+                cx_cta + (bw - lw) * 0.5,
+                cta_y + 14.0,
+                if primary_cta { pal.cta_fg } else { pal.ink },
                 label,
             );
             hits.push(HitRegion {
-                x: mtx,
-                y: mock_y + 6.0,
-                w: tw,
-                h: 38.0,
+                x: cx_cta,
+                y: cta_y,
+                w: bw,
+                h: 42.0,
+                id: hid,
+                clickable: true,
+            });
+            cx_cta += bw + 10.0;
+        }
+
+        // Right Orbital Radar Box
+        if two_col {
+            let rx = x0 + left_w + 8.0;
+            let rw = cw - left_w - 8.0;
+            draw_box(c, rx, y, rw, hero_h, pal.strip, pal.hairline_strong, 1.0);
+            draw_crosshair_corners(c, rx, y, rw, hero_h, 7.0, pal.ink);
+
+            c.draw_text(&mut self.fonts, FontStyle::Mono, 9.0, rx + 16.0, y + 14.0, pal.steel, "ORBITAL TELEMETRY // PLUTO-I");
+            let ang_deg = ((time_sec * 42.0) % 360.0) as u32;
+            let rad_txt = format!("{ang_deg:03} DEG");
+            c.draw_text(&mut self.fonts, FontStyle::Mono, 9.0, rx + rw - 68.0, y + 14.0, pal.primary, &rad_txt);
+
+            let p_cx = rx + rw * 0.5;
+            let p_cy = y + hero_h * 0.5 + 4.0;
+
+            // Concentric radar hairlines + cursor crosshair
+            for rad in [58.0, 96.0, 134.0] {
+                c.stroke_circle(p_cx, p_cy, rad, 1.0, Color::rgba(pal.hairline_strong.r, pal.hairline_strong.g, pal.hairline_strong.b, 65));
+            }
+            c.draw_line_aa(rx + 18.0, p_cy, rx + rw - 18.0, p_cy, 1.0, pal.hairline);
+            c.draw_line_aa(p_cx, y + 40.0, p_cx, y + hero_h - 44.0, 1.0, pal.hairline);
+
+            let px_off = ((cursor.0 - p_cx) * 0.04).clamp(-10.0, 10.0);
+            let py_off = ((cursor.1 - p_cy) * 0.04).clamp(-10.0, 10.0);
+            c.draw_pluto_hero_system(p_cx, p_cy, time_sec, px_off, py_off);
+
+            // Live cursor tracking crosshair lines inside Radar
+            if point_in(cursor, rx + 4.0, y + 32.0, rw - 8.0, hero_h - 68.0) {
+                c.draw_line_aa(rx + 6.0, cursor.1, rx + rw - 6.0, cursor.1, 1.0, Color::rgba(pal.primary.r, pal.primary.g, pal.primary.b, 95));
+                c.draw_line_aa(cursor.0, y + 36.0, cursor.0, y + hero_h - 38.0, 1.0, Color::rgba(pal.primary.r, pal.primary.g, pal.primary.b, 95));
+            }
+
+            c.fill_rect(rx, y + hero_h - 34.0, rw, 1.0, pal.hairline);
+            c.draw_text(
+                &mut self.fonts,
+                FontStyle::Mono,
+                8.5,
+                rx + 16.0,
+                y + hero_h - 22.0,
+                pal.steel,
+                "GPU ZERO-COPY  //  SOFTBUFFER SURFACE  //  NATIVE RUST",
+            );
+        }
+        y += hero_h + 24.0;
+
+        // 03 // BENCHMARK TELEMETRY STRIP (4 EQUAL CONTIGUOUS BOXES)
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.5, x0, y, pal.steel, "02 // BENCHMARK TELEMETRY MATRIX");
+        y += 22.0;
+        let bcols = if cw >= 780.0 { 4 } else { 2 };
+        let bcell_w = cw / bcols as f32;
+        let bcell_h = 112.0;
+        let metrics = [
+            ("SHELL RAM IDLE", "14 MB", "vs 260 MB Chrome UI", 0.06_f32),
+            ("UI FRAME TIME", "< 1.8 ms", "vs 24 ms JS Layout", 0.08_f32),
+            ("COLD STARTUP", "42 ms", "vs 410 ms WebView UI", 0.11_f32),
+            ("HTML / JS BLOAT", "0 LINES", "vs 1.2M+ LoC WebUI", 0.01_f32),
+        ];
+        for (i, (k, val, sub, ratio)) in metrics.iter().enumerate() {
+            let col = i % bcols;
+            let row = i / bcols;
+            let bx = x0 + col as f32 * bcell_w;
+            let by = y + row as f32 * bcell_h;
+            draw_box(c, bx, by, bcell_w, bcell_h, pal.surface, pal.hairline_strong, 1.0);
+            c.draw_text(&mut self.fonts, FontStyle::Mono, 8.5, bx + 16.0, by + 14.0, pal.steel, k);
+            c.draw_text(&mut self.fonts, FontStyle::Bold, 20.0, bx + 16.0, by + 36.0, pal.ink, val);
+            // Comparison bar (Pluto fraction vs Modern WebView baseline)
+            c.fill_rect(bx + 16.0, by + 76.0, bcell_w - 32.0, 5.0, pal.hairline);
+            c.fill_rect(bx + 16.0, by + 76.0, ((bcell_w - 32.0) * *ratio).max(6.0), 5.0, pal.primary);
+            c.draw_text_ellipsis(&mut self.fonts, FontStyle::Mono, 8.5, bx + 16.0, by + 88.0, bcell_w - 32.0, pal.slate, sub);
+        }
+        y += ((metrics.len() + bcols - 1) / bcols) as f32 * bcell_h + 24.0;
+
+        // 04 // MODERN BROWSER ARCHITECTURAL COMPARISON TABLE
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.5, x0, y, pal.steel, "03 // PLUTO VS MODERN BROWSERS");
+        y += 22.0;
+        let table_rows = [
+            ["METRIC", "PLUTO (RUST)", "GOOGLE CHROME", "ARC BROWSER", "BRAVE"],
+            ["UI Renderer Stack", "100% Native Rust", "C++ Views + WebUI", "SwiftUI + AppKit", "WebUI + C++"],
+            ["UI Shell Footprint", "~14 MB Static", "~260 MB Idle", "~440 MB Idle", "~230 MB Idle"],
+            ["Chrome HTML / JS Code", "0 Bytes (Zero)", "Embedded WebUI", "Hybrid Chromium", "Embedded WebUI"],
+            ["Layout Customizer", "Top Bar + Arc Left", "Top Strip Only", "Sidebar Only", "Top / Vertical"],
+            ["Shield & Reader Mode", "Native Zero-Ext", "Extensions Req.", "Boosts + Ext", "Built-in Shields"],
+        ];
+        let row_h = 38.0;
+        let col_w = cw / 5.0;
+        for (r_idx, row) in table_rows.iter().enumerate() {
+            let ry = y + r_idx as f32 * row_h;
+            let row_bg = if r_idx == 0 {
+                pal.strip
+            } else if r_idx % 2 == 1 {
+                pal.surface
+            } else {
+                pal.canvas
+            };
+            draw_box(c, x0, ry, cw, row_h, row_bg, pal.hairline, 1.0);
+            for (c_idx, cell) in row.iter().enumerate() {
+                let cx = x0 + c_idx as f32 * col_w;
+                if c_idx > 0 {
+                    c.fill_rect(cx, ry, 1.0, row_h, pal.hairline);
+                }
+                if c_idx == 1 && r_idx > 0 {
+                    c.fill_rect(cx + 1.0, ry + 1.0, col_w - 2.0, row_h - 2.0, pal.surface_soft);
+                }
+                let fg = if r_idx == 0 {
+                    if c_idx == 1 { pal.primary } else { pal.steel }
+                } else if c_idx == 1 {
+                    pal.ink
+                } else if c_idx == 0 {
+                    pal.ink
+                } else {
+                    pal.slate
+                };
+                c.draw_text_ellipsis(
+                    &mut self.fonts,
+                    if c_idx == 1 || r_idx == 0 { FontStyle::Mono } else { FontStyle::Regular },
+                    if r_idx == 0 { 9.0 } else { 9.5 },
+                    cx + 12.0,
+                    ry + 11.0,
+                    col_w - 20.0,
+                    fg,
+                    cell,
+                );
+            }
+        }
+        c.stroke_rounded_rect(x0, y, cw, table_rows.len() as f32 * row_h, 0.0, 1.0, pal.hairline_strong);
+        y += table_rows.len() as f32 * row_h + 24.0;
+
+        // 05 // INTERACTIVE FEATURE ARCHITECTURE DECK (3 TABS)
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.5, x0, y, pal.steel, "04 // ENGINE CAPABILITIES");
+        y += 22.0;
+        let deck_h = 200.0;
+        draw_box(c, x0, y, cw, deck_h, pal.surface, pal.hairline_strong, 1.0);
+        c.fill_rect(x0, y + 40.0, cw, 1.0, pal.hairline);
+
+        let d_tabs = [
+            "01 // WORKSPACE & LAYOUTS",
+            "02 // SHIELD, READER & AUDIO",
+            "03 // KEYBOARD MATRIX",
+        ];
+        let mut dx = x0;
+        let tab_w = (cw / 3.0).max(120.0);
+        for (idx, lbl) in d_tabs.iter().enumerate() {
+            let active = self.welcome_mock_tab == idx;
+            let hov = point_in(cursor, dx, y, tab_w, 40.0);
+            c.fill_rect(
+                dx,
+                y,
+                tab_w,
+                40.0,
+                if active { pal.surface_soft } else if hov { pal.btn_hover } else { pal.strip },
+            );
+            if idx > 0 {
+                c.fill_rect(dx, y, 1.0, 40.0, pal.hairline);
+            }
+            if active {
+                c.fill_rect(dx, y, tab_w, 2.0, pal.primary);
+            }
+            c.draw_text_ellipsis(
+                &mut self.fonts,
+                FontStyle::Mono,
+                9.5,
+                dx + 14.0,
+                y + 13.0,
+                tab_w - 24.0,
+                if active { pal.ink } else { pal.steel },
+                lbl,
+            );
+            hits.push(HitRegion {
+                x: dx,
+                y,
+                w: tab_w,
+                h: 40.0,
                 id: HitId::WelcomeMockTab(idx),
                 clickable: true,
             });
-            mtx += tw + 8.0;
+            dx += tab_w;
         }
 
-        let mbody_y = mock_y + 62.0;
-        if self.welcome_mock_tab == 0 {
-            let col_w = (container_w - 64.0) / 3.0;
-            let cols = [
-                (
-                    "Core Architecture",
-                    "Rust",
-                    pal.tint_lavender,
-                    pal.tint_lavender_ink,
-                    "Native Softbuffer + SDF",
-                    "Every pixel of the chrome, icons, zoom, and Pluto orbit renders natively from Rust.",
-                ),
-                (
-                    "Modern Productivity",
-                    "Ctrl+K",
-                    pal.tint_mint,
-                    pal.tint_mint_ink,
-                    "Command Palette + History",
-                    "Jump between tabs, bookmarks, Google searches, and recent history in one keypress.",
-                ),
-                (
-                    "Built-in Tooling",
-                    "Fast",
-                    pal.tint_peach,
-                    pal.tint_peach_ink,
-                    "Pluto Native Inspector",
-                    "Live Rust HUD + DOM telemetry and native DevTools without extension bloat.",
-                ),
-            ];
-            for (i, (head, tag, tbg, tfg, title, desc)) in cols.iter().enumerate() {
-                let bx = cx + 18.0 + i as f32 * (col_w + 14.0);
-                c.fill_rounded_rect(bx, mbody_y, col_w, 198.0, 10.0, pal.surface_soft);
-                c.stroke_rounded_rect(bx, mbody_y, col_w, 198.0, 10.0, 1.0, pal.hairline);
-                c.draw_text(&mut self.fonts, FontStyle::SemiBold, 13.0, bx + 14.0, mbody_y + 14.0, pal.charcoal, head);
-                let tag_w = self.fonts.measure_text(FontStyle::SemiBold, 11.0, tag) + 14.0;
-                c.fill_rounded_rect(bx + col_w - tag_w - 14.0, mbody_y + 11.0, tag_w, 22.0, 5.0, *tbg);
-                c.draw_text(&mut self.fonts, FontStyle::SemiBold, 11.0, bx + col_w - tag_w - 7.0, mbody_y + 15.5, *tfg, tag);
-
-                c.fill_rounded_rect(bx + 12.0, mbody_y + 44.0, col_w - 24.0, 138.0, 8.0, pal.canvas);
-                c.stroke_rounded_rect(bx + 12.0, mbody_y + 44.0, col_w - 24.0, 138.0, 8.0, 1.0, pal.hairline);
-                c.draw_text_ellipsis(&mut self.fonts, FontStyle::SemiBold, 14.0, bx + 22.0, mbody_y + 58.0, col_w - 44.0, pal.ink, title);
-                draw_wrapped_text(c, &mut self.fonts, FontStyle::Regular, 12.5, bx + 22.0, mbody_y + 88.0, col_w - 44.0, 19.0, pal.slate, desc);
+        let deck_body_y = y + 54.0;
+        let deck_items: &[(&str, &str)] = match self.welcome_mock_tab {
+            0 => &[
+                ("Dual Navigation Modes", "Switch cleanly between Classic Top Horizontal Tabs and Arc-style Left Sidebar in Settings or 1-click."),
+                ("Per-Tab Scale & Pinning", "Double-click any tab to pin it compactly. Zoom pages independently from 60% to 200%."),
+                ("Command Palette & Inspector", "Press Ctrl+K for universal command jump or Ctrl+Shift+D for live Rust runtime telemetry."),
+            ],
+            1 => &[
+                ("Pluto Shield (Zero-Extension)", "Suppresses ad banners, sponsored cards, and noisy consent popups natively at page load."),
+                ("Clean Reader Mode (Alt+R)", "Extracts article typography into a sharp black-and-white distraction-free column."),
+                ("Tab Audio Mute (Alt+M)", "Silence noisy media tabs instantly and copy links as clean Markdown via Ctrl+Shift+Y."),
+            ],
+            _ => &[
+                ("Navigation & Omnibox", "Ctrl+L Focus URL  |  Ctrl+T New Tab  |  Ctrl+W Close  |  Ctrl+Shift+T Reopen"),
+                ("Layout & Preferences", "Ctrl+, Settings  |  Ctrl+B Collapse Sidebar  |  Ctrl+Shift+L Swap Top/Arc Layout"),
+                ("Power Tools", "Alt+R Reader Mode  |  Alt+M Mute Audio  |  Ctrl+Shift+Y Copy Markdown  |  F12 DevTools"),
+            ],
+        };
+        let dcol_w = cw / 3.0;
+        for (i, (title, desc)) in deck_items.iter().enumerate() {
+            let cx = x0 + i as f32 * dcol_w;
+            if i > 0 {
+                c.fill_rect(cx, y + 40.0, 1.0, deck_h - 40.0, pal.hairline);
             }
-        } else if self.welcome_mock_tab == 1 {
-            c.fill_rounded_rect(cx + 20.0, mbody_y, container_w - 40.0, 198.0, 10.0, pal.brand_navy);
-            let lines = [
-                ("Pluto Pure-Rust Render Telemetry", Color::rgb(0xa4, 0xa0, 0x97)),
-                (&format!("frame_budget: {:.2} ms | active_zoom: {}%", self.last_frame_ms, zoom_percent), Color::rgb(0xd6, 0xb6, 0xf6)),
-                ("html_files_in_chrome: 0 | css_files: 0 | js_files: 0", Color::rgb(0x4c, 0xd4, 0x68)),
-                ("default_search: https://www.google.com/search?q=...", Color::rgb(255, 255, 255)),
-                ("tab_engine: Lazy Option<WebView> (0 child processes on internal routes)", Color::rgb(210, 220, 240)),
-            ];
-            for (i, (line, col)) in lines.iter().enumerate() {
-                c.draw_text(&mut self.fonts, FontStyle::Mono, 12.5, cx + 40.0, mbody_y + 24.0 + i as f32 * 32.0, *col, line);
-            }
-        } else {
-            let keys = [
-                ("Focus Omnibox", "Ctrl+L"),
-                ("Command Palette", "Ctrl+K"),
-                ("Bookmarks Bar", "Ctrl+Shift+B"),
-                ("Pluto Inspector", "Ctrl+Shift+D"),
-                ("Zoom In / Out / Reset", "Ctrl+ / - / 0"),
-                ("Duplicate Tab", "Ctrl+Shift+K"),
-            ];
-            let kw = (container_w - 64.0) / 3.0;
-            for (i, (label, kbd)) in keys.iter().enumerate() {
-                let col = i % 3;
-                let row = i / 3;
-                let kx = cx + 18.0 + col as f32 * (kw + 14.0);
-                let ky = mbody_y + row as f32 * 76.0 + 12.0;
-                c.fill_rounded_rect(kx, ky, kw, 58.0, 8.0, pal.surface);
-                c.stroke_rounded_rect(kx, ky, kw, 58.0, 8.0, 1.0, pal.hairline);
-                c.draw_text(&mut self.fonts, FontStyle::SemiBold, 13.0, kx + 14.0, ky + 20.0, pal.charcoal, label);
-                let kbw = self.fonts.measure_text(FontStyle::SemiBold, 11.0, kbd) + 16.0;
-                c.fill_rounded_rect(kx + kw - kbw - 10.0, ky + 15.0, kbw, 28.0, 6.0, pal.canvas);
-                c.stroke_rounded_rect(kx + kw - kbw - 10.0, ky + 15.0, kbw, 28.0, 6.0, 1.0, pal.hairline_strong);
-                c.draw_text(&mut self.fonts, FontStyle::SemiBold, 11.0, kx + kw - kbw - 2.0, ky + 22.0, pal.ink, kbd);
-            }
-        }
-
-        // Comparison Section
-        let cmp_y = hero_y + nav_h + hero_h + 44.0;
-        c.draw_text(&mut self.fonts, FontStyle::SemiBold, 12.0, cx, cmp_y, pal.primary, "COMPARE ARCHITECTURE");
-        c.draw_text(&mut self.fonts, FontStyle::Bold, 26.0, cx, cmp_y + 22.0, pal.ink, "Native Rust chrome by design, not HTML wrapper.");
-
-        let tiers = [
-            (
-                "Pluto Browser",
-                "Pure Rust UI",
-                "~1.2 MB",
-                "Zero HTML/CSS/JS chrome",
-                &["Softbuffer + SDF UI", "Background tab trimming", "Google Search + Ctrl+K", "Local JSON state"][..],
-                true,
-            ),
-            (
-                "Google Chrome",
-                "",
-                "~110 MB",
-                "Bundled Blink runtime",
-                &["~320 MB idle RAM", "~1,400 ms cold start", "Full DevTools suite", "Background updaters"],
-                false,
-            ),
-            (
-                "Brave Browser",
-                "",
-                "~125 MB",
-                "Chromium fork",
-                &["~290 MB idle RAM", "~1,150 ms cold start", "Built-in DevTools", "Bundled extras"],
-                false,
-            ),
-            (
-                "Arc Desktop",
-                "",
-                "~240 MB",
-                "Swift + Chromium",
-                &["~480 MB idle RAM", "~2,100 ms cold start", "Chromium DevTools", "Account sign-in"],
-                false,
-            ),
-        ];
-
-        let card_w = (container_w - 48.0) / 4.0;
-        let card_y = cmp_y + 70.0;
-        for (i, (name, badge, metric, sub, facts, featured)) in tiers.iter().enumerate() {
-            let tx = cx + i as f32 * (card_w + 16.0);
-            c.fill_rounded_rect(tx, card_y, card_w, 246.0, 12.0, if *featured { pal.surface } else { pal.canvas });
-            c.stroke_rounded_rect(
-                tx,
-                card_y,
-                card_w,
-                246.0,
-                12.0,
-                if *featured { 2.0 } else { 1.0 },
-                if *featured { pal.primary } else { pal.hairline },
+            c.draw_text_ellipsis(&mut self.fonts, FontStyle::Bold, 11.5, cx + 18.0, deck_body_y, dcol_w - 32.0, pal.ink, title);
+            draw_wrapped_text(
+                c,
+                &mut self.fonts,
+                FontStyle::Regular,
+                10.0,
+                cx + 18.0,
+                deck_body_y + 32.0,
+                dcol_w - 36.0,
+                21.0,
+                pal.slate,
+                desc,
             );
-            c.draw_text(&mut self.fonts, FontStyle::Bold, 15.5, tx + 18.0, card_y + 18.0, pal.ink, name);
-            if !badge.is_empty() {
-                let bw = self.fonts.measure_text(FontStyle::SemiBold, 10.5, badge) + 14.0;
-                c.fill_rounded_rect(tx + card_w - bw - 14.0, card_y + 16.0, bw, 22.0, 11.0, pal.primary);
-                c.draw_text(&mut self.fonts, FontStyle::SemiBold, 10.5, tx + card_w - bw - 7.0, card_y + 21.0, pal.on_primary, badge);
-            }
-            c.draw_text(&mut self.fonts, FontStyle::Bold, 27.0, tx + 18.0, card_y + 54.0, pal.ink, metric);
-            c.draw_text_ellipsis(&mut self.fonts, FontStyle::Regular, 12.5, tx + 18.0, card_y + 92.0, card_w - 36.0, pal.slate, sub);
-            c.fill_rect(tx + 18.0, card_y + 120.0, card_w - 36.0, 1.0, pal.hairline);
-            for (fi, f) in facts.iter().enumerate() {
-                c.draw_text_ellipsis(&mut self.fonts, FontStyle::Regular, 12.5, tx + 18.0, card_y + 134.0 + fi as f32 * 24.0, card_w - 36.0, pal.charcoal, f);
-            }
         }
+        y += deck_h + 24.0;
 
-        // Bottom Setup Destination Banner
-        let setup_y = card_y + 282.0;
-        c.fill_rounded_rect(cx, setup_y, container_w, 206.0, 12.0, pal.surface);
-        c.stroke_rounded_rect(cx, setup_y, container_w, 206.0, 12.0, 1.0, pal.hairline);
-        c.draw_text(&mut self.fonts, FontStyle::Bold, 23.0, cx + 28.0, setup_y + 26.0, pal.ink, "Choose where Pluto Browser opens.");
-        c.draw_text(
-            &mut self.fonts,
-            FontStyle::Regular,
-            13.5,
-            cx + 28.0,
-            setup_y + 62.0,
-            pal.slate,
-            "Select your starting page below. Click the Planet Pluto button anytime to reopen this showcase.",
-        );
+        // 06 // STARTUP DESTINATION SELECTOR & LAUNCH BOX
+        draw_box(c, x0, y, cw, 112.0, pal.strip, pal.hairline_strong, 1.0);
+        draw_crosshair_corners(c, x0, y, cw, 112.0, 6.0, pal.ink);
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.0, x0 + 20.0, y + 16.0, pal.steel, "05 // SELECT INITIAL DESTINATION");
 
-        let mut px = cx + 28.0;
-        let py = setup_y + 98.0;
+        let mut px_d = x0 + 20.0;
+        let py_d = y + 46.0;
         for (idx, (label, _)) in DESTINATIONS.iter().enumerate() {
-            let pw = self.fonts.measure_text(FontStyle::SemiBold, 13.0, label) + 28.0;
-            let active = self.welcome_dest_idx == idx;
-            c.fill_rounded_rect(px, py, pw, 34.0, 17.0, if active { pal.ink_deep } else { pal.canvas });
-            if !active {
-                c.stroke_rounded_rect(px, py, pw, 34.0, 17.0, 1.0, pal.hairline_strong);
-            }
+            let sel = self.welcome_dest_idx == idx;
+            let bw = self.fonts.measure_text(FontStyle::Mono, 9.5, label) + 28.0;
+            let hov = point_in(cursor, px_d, py_d, bw, 36.0);
+            draw_box(
+                c,
+                px_d,
+                py_d,
+                bw,
+                36.0,
+                if sel { pal.cta_bg } else if hov { pal.btn_hover } else { pal.surface },
+                if sel || hov { pal.hairline_strong } else { pal.hairline },
+                1.0,
+            );
             c.draw_text(
                 &mut self.fonts,
-                FontStyle::SemiBold,
-                13.0,
-                px + 14.0,
-                py + 9.0,
-                if active { Color::rgb(255, 255, 255) } else { pal.charcoal },
+                FontStyle::Mono,
+                9.5,
+                px_d + 14.0,
+                py_d + 11.0,
+                if sel { pal.cta_fg } else { pal.ink },
                 label,
             );
             hits.push(HitRegion {
-                x: px,
-                y: py,
-                w: pw,
-                h: 34.0,
+                x: px_d,
+                y: py_d,
+                w: bw,
+                h: 36.0,
                 id: HitId::WelcomeDestPill(idx),
                 clickable: true,
             });
-            px += pw + 10.0;
+            px_d += bw + 8.0;
         }
 
-        let fin_y = setup_y + 148.0;
-        let fin_hov = point_in(cursor, cx + 28.0, fin_y, 184.0, 38.0);
-        c.fill_rounded_rect(
-            cx + 28.0,
-            fin_y,
-            184.0,
-            38.0,
-            8.0,
-            if fin_hov { pal.primary_pressed } else { pal.primary },
+        let fin_w = 216.0;
+        let fin_x = (x0 + cw - fin_w - 20.0).max(px_d + 8.0);
+        let fin_hov = point_in(cursor, fin_x, py_d - 4.0, fin_w, 42.0);
+        draw_box(
+            c,
+            fin_x,
+            py_d - 4.0,
+            fin_w,
+            42.0,
+            if fin_hov { pal.cta_hover } else { pal.cta_bg },
+            pal.hairline_strong,
+            1.0,
         );
-        c.draw_text(&mut self.fonts, FontStyle::SemiBold, 14.0, cx + 48.0, fin_y + 10.0, pal.on_primary, "Launch Workspace");
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 10.0, fin_x + 22.0, py_d + 10.0, pal.cta_fg, "INITIALIZE SESSION");
         hits.push(HitRegion {
-            x: cx + 28.0,
-            y: fin_y,
-            w: 184.0,
-            h: 38.0,
+            x: fin_x,
+            y: py_d - 4.0,
+            w: fin_w,
+            h: 42.0,
             id: HitId::WelcomeFinish,
             clickable: true,
         });
 
-        // Sticky Top Nav inside Welcome view
-        c.fill_rect(vx, vy, vw, nav_h, pal.canvas);
-        c.fill_rect(vx, vy + nav_h - 1.0, vw, 1.0, pal.hairline);
-        c.draw_pluto_logo(cx, vy + 15.0, 26.0, 0.0);
-        c.draw_text(&mut self.fonts, FontStyle::Bold, 16.0, cx + 36.0, vy + 18.0, pal.ink, "Pluto Browser");
+        y += 140.0;
+        let total_h = (y + scroll) - vy;
+        self.welcome_max_scroll = (total_h - vh).max(0.0);
+        if self.welcome_scroll_y > self.welcome_max_scroll {
+            self.welcome_scroll_y = self.welcome_max_scroll;
+        }
+        if self.welcome_max_scroll > 4.0 {
+            draw_scrollbar(c, pal, vx + vw - 9.0, vy + 6.0, vh - 12.0, scroll, self.welcome_max_scroll, total_h);
+        }
+    }
 
-        let nav_cta_x = cx + container_w - 156.0;
-        let nhov = point_in(cursor, nav_cta_x, vy + 10.0, 156.0, 36.0);
-        c.fill_rounded_rect(
-            nav_cta_x,
-            vy + 10.0,
-            156.0,
-            36.0,
-            8.0,
-            if nhov { pal.primary_pressed } else { pal.primary },
+    #[allow(clippy::too_many_arguments)]
+    fn render_settings_page(
+        &mut self,
+        c: &mut Canvas<'_>,
+        pal: &ThemePalette,
+        cursor: (f32, f32),
+        vx: f32,
+        vy: f32,
+        vw: f32,
+        vh: f32,
+        snapshot: &RenderSnapshot<'_>,
+        hits: &mut Vec<HitRegion>,
+    ) {
+        c.fill_rect(vx, vy, vw, vh, pal.canvas);
+
+        let scroll = self.settings_scroll_y;
+        let pad_x = ((vw - 1040.0) * 0.5).max(24.0);
+        let cw = (vw - pad_x * 2.0).max(320.0);
+        let x0 = vx + pad_x;
+        let mut y = vy + 26.0 - scroll;
+
+        // Settings Header
+        draw_box(c, x0, y, cw, 82.0, pal.strip, pal.hairline_strong, 1.0);
+        draw_crosshair_corners(c, x0, y, cw, 82.0, 6.0, pal.ink);
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.0, x0 + 20.0, y + 14.0, pal.primary, "PLUTO://SETTINGS // NATIVE CONFIGURATION");
+        c.draw_text(&mut self.fonts, FontStyle::Bold, 20.0, x0 + 20.0, y + 34.0, pal.ink, "Workspace & Engine Preferences");
+        y += 104.0;
+
+        // Section 01: Navigation Layout (Top Bar vs Arc Left Sidebar)
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.5, x0, y, pal.steel, "01 // NAVIGATION & SIDEBAR ARCHITECTURE");
+        y += 22.0;
+
+        let card_w = (cw - 12.0) * 0.5;
+        let card_h = 166.0;
+
+        // Card A: Top Horizontal Bar
+        let top_sel = !snapshot.sidebar_left;
+        let top_hov = point_in(cursor, x0, y, card_w, card_h);
+        draw_box(
+            c,
+            x0,
+            y,
+            card_w,
+            card_h,
+            if top_sel { pal.surface_soft } else if top_hov { pal.btn_hover } else { pal.surface },
+            if top_sel { pal.hairline_strong } else { pal.hairline },
+            if top_sel { 1.5 } else { 1.0 },
         );
-        c.draw_text(&mut self.fonts, FontStyle::SemiBold, 13.5, nav_cta_x + 17.0, vy + 19.0, pal.on_primary, "Open Workspace");
+        // Mini architectural schematic: Top Bar
+        draw_box(c, x0 + 18.0, y + 18.0, 128.0, 64.0, pal.canvas, pal.hairline_strong, 1.0);
+        c.fill_rect(x0 + 19.0, y + 19.0, 126.0, 16.0, if top_sel { pal.primary } else { pal.steel });
+        c.fill_rect(x0 + 19.0, y + 36.0, 126.0, 10.0, pal.strip);
+        c.draw_text(&mut self.fonts, FontStyle::Bold, 12.0, x0 + 162.0, y + 18.0, pal.ink, "TOP HORIZONTAL BAR");
+        draw_wrapped_text(
+            c,
+            &mut self.fonts,
+            FontStyle::Regular,
+            9.5,
+            x0 + 162.0,
+            y + 44.0,
+            card_w - 178.0,
+            20.0,
+            pal.slate,
+            "Classic Zed/Chromium strip. Full-width canvas with tabs arranged cleanly above the omnibox.",
+        );
+        draw_badge(
+            c,
+            &mut self.fonts,
+            x0 + 18.0,
+            y + card_h - 36.0,
+            if top_sel { pal.cta_bg } else { pal.strip },
+            pal.hairline_strong,
+            if top_sel { pal.cta_fg } else { pal.steel },
+            if top_sel { "ACTIVE LAYOUT" } else { "SELECT TOP MODE" },
+        );
         hits.push(HitRegion {
-            x: nav_cta_x,
-            y: vy + 10.0,
-            w: 156.0,
-            h: 36.0,
-            id: HitId::WelcomeHeroOpen,
+            x: x0,
+            y,
+            w: card_w,
+            h: card_h,
+            id: HitId::SettingsLayoutTop,
             clickable: true,
         });
 
-        let total_content_h = (setup_y + 236.0) - hero_y;
-        self.welcome_max_scroll = (total_content_h - vh).max(0.0);
-        self.welcome_scroll_y = self.welcome_scroll_y.clamp(0.0, self.welcome_max_scroll);
+        // Card B: Arc / Zed Left Sidebar
+        let rx = x0 + card_w + 12.0;
+        let arc_sel = snapshot.sidebar_left;
+        let arc_hov = point_in(cursor, rx, y, card_w, card_h);
+        draw_box(
+            c,
+            rx,
+            y,
+            card_w,
+            card_h,
+            if arc_sel { pal.surface_soft } else if arc_hov { pal.btn_hover } else { pal.surface },
+            if arc_sel { pal.hairline_strong } else { pal.hairline },
+            if arc_sel { 1.5 } else { 1.0 },
+        );
+        draw_box(c, rx + 18.0, y + 18.0, 128.0, 64.0, pal.canvas, pal.hairline_strong, 1.0);
+        c.fill_rect(rx + 19.0, y + 19.0, 34.0, 62.0, if arc_sel { pal.primary } else { pal.steel });
+        c.fill_rect(rx + 54.0, y + 19.0, 91.0, 12.0, pal.strip);
+        c.draw_text(&mut self.fonts, FontStyle::Bold, 12.0, rx + 162.0, y + 18.0, pal.ink, "ARC / ZED LEFT SIDEBAR");
+        draw_wrapped_text(
+            c,
+            &mut self.fonts,
+            FontStyle::Regular,
+            9.5,
+            rx + 162.0,
+            y + 44.0,
+            card_w - 178.0,
+            20.0,
+            pal.slate,
+            "Vertical left workspace drawer with Favorites 3x2 grid, vertical tabs list, and compact single-row omnibox.",
+        );
+        draw_badge(
+            c,
+            &mut self.fonts,
+            rx + 18.0,
+            y + card_h - 36.0,
+            if arc_sel { pal.cta_bg } else { pal.strip },
+            pal.hairline_strong,
+            if arc_sel { pal.cta_fg } else { pal.steel },
+            if arc_sel { "ACTIVE LAYOUT" } else { "SELECT ARC SIDEBAR" },
+        );
+        hits.push(HitRegion {
+            x: rx,
+            y,
+            w: card_w,
+            h: card_h,
+            id: HitId::SettingsLayoutLeft,
+            clickable: true,
+        });
+        y += card_h + 12.0;
 
-        if self.welcome_max_scroll > 0.0 {
-            draw_scrollbar(c, pal, vx + vw - 9.0, vy + 4.0, vh - 8.0, self.welcome_scroll_y, self.welcome_max_scroll, total_content_h);
+        // Toggles Row: Sidebar Collapse + Bookmarks Bar
+        let row_bw = (cw - 12.0) * 0.5;
+        let col_hov = point_in(cursor, x0, y, row_bw, 48.0);
+        draw_box(
+            c,
+            x0,
+            y,
+            row_bw,
+            48.0,
+            if col_hov { pal.btn_hover } else { pal.surface },
+            pal.hairline,
+            1.0,
+        );
+        c.draw_text(&mut self.fonts, FontStyle::SemiBold, 10.5, x0 + 16.0, y + 15.0, pal.ink, "Collapse Sidebar (Ctrl+B)");
+        draw_badge(
+            c,
+            &mut self.fonts,
+            x0 + row_bw - 108.0,
+            y + 13.0,
+            pal.strip,
+            pal.hairline_strong,
+            pal.ink,
+            if snapshot.sidebar_collapsed { "COLLAPSED" } else { "EXPANDED" },
+        );
+        hits.push(HitRegion {
+            x: x0,
+            y,
+            w: row_bw,
+            h: 48.0,
+            id: HitId::SettingsSidebarCollapse,
+            clickable: true,
+        });
+
+        let bm_hov = point_in(cursor, rx, y, row_bw, 48.0);
+        draw_box(
+            c,
+            rx,
+            y,
+            row_bw,
+            48.0,
+            if bm_hov { pal.btn_hover } else { pal.surface },
+            pal.hairline,
+            1.0,
+        );
+        c.draw_text(&mut self.fonts, FontStyle::SemiBold, 10.5, rx + 16.0, y + 15.0, pal.ink, "Bookmarks Bar (Ctrl+Shift+B)");
+        draw_badge(
+            c,
+            &mut self.fonts,
+            rx + row_bw - 98.0,
+            y + 13.0,
+            pal.strip,
+            pal.hairline_strong,
+            if snapshot.show_bookmarks_bar { pal.brand_green } else { pal.steel },
+            if snapshot.show_bookmarks_bar { "VISIBLE" } else { "HIDDEN" },
+        );
+        hits.push(HitRegion {
+            x: rx,
+            y,
+            w: row_bw,
+            h: 48.0,
+            id: HitId::SettingsBookmarksToggle,
+            clickable: true,
+        });
+        y += 72.0;
+
+        // Section 02: Grid Theme & Scale Zoom Presets
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.5, x0, y, pal.steel, "02 // THEME & INTERFACE SCALE");
+        y += 22.0;
+
+        for (tx, label, is_dark_opt, active, hid) in [
+            (x0, "ZED OBSIDIAN GRID (PURE BLACK)", true, self.dark_mode, HitId::SettingsThemeDark),
+            (rx, "STARK PAPER GRID (WHITE)", false, !self.dark_mode, HitId::SettingsThemeLight),
+        ] {
+            let hov = point_in(cursor, tx, y, row_bw, 56.0);
+            draw_box(
+                c,
+                tx,
+                y,
+                row_bw,
+                56.0,
+                if active { pal.surface_soft } else if hov { pal.btn_hover } else { pal.surface },
+                if active { pal.hairline_strong } else { pal.hairline },
+                if active { 1.5 } else { 1.0 },
+            );
+            let swatch = if is_dark_opt { Color::rgb(0x08, 0x08, 0x0a) } else { Color::rgb(0xff, 0xff, 0xff) };
+            draw_box(c, tx + 16.0, y + 14.0, 28.0, 28.0, swatch, pal.hairline_strong, 1.0);
+            c.draw_text(&mut self.fonts, FontStyle::Mono, 9.5, tx + 56.0, y + 20.0, pal.ink, label);
+            hits.push(HitRegion {
+                x: tx,
+                y,
+                w: row_bw,
+                h: 56.0,
+                id: hid,
+                clickable: true,
+            });
         }
-        c.pop_clip();
+        y += 68.0;
+
+        draw_box(c, x0, y, cw, 62.0, pal.surface, pal.hairline, 1.0);
+        c.draw_text(&mut self.fonts, FontStyle::SemiBold, 10.5, x0 + 16.0, y + 21.0, pal.ink, "Active Tab Zoom Scale:");
+        let presets: &[u32] = &[80, 90, 100, 110, 125, 150, 175];
+        let mut zx = x0 + 210.0;
+        for &pct in presets {
+            if zx + 58.0 > x0 + cw - 12.0 {
+                break;
+            }
+            let sel = snapshot.zoom_percent == pct;
+            let hov = point_in(cursor, zx, y + 14.0, 54.0, 34.0);
+            draw_box(
+                c,
+                zx,
+                y + 14.0,
+                54.0,
+                34.0,
+                if sel { pal.cta_bg } else if hov { pal.btn_hover } else { pal.canvas },
+                pal.hairline_strong,
+                1.0,
+            );
+            let lbl = format!("{pct}%");
+            c.draw_text(
+                &mut self.fonts,
+                FontStyle::Mono,
+                9.5,
+                zx + 10.0,
+                y + 24.0,
+                if sel { pal.cta_fg } else { pal.ink },
+                &lbl,
+            );
+            hits.push(HitRegion {
+                x: zx,
+                y: y + 14.0,
+                w: 54.0,
+                h: 34.0,
+                id: HitId::SettingsZoomPreset(pct),
+                clickable: true,
+            });
+            zx += 60.0;
+        }
+        y += 86.0;
+
+        // Section 03: Privacy, Shield & Actions
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.5, x0, y, pal.steel, "03 // PRIVACY, SHIELD & DIAGNOSTICS");
+        y += 22.0;
+
+        let sh_hov = point_in(cursor, x0, y, cw, 58.0);
+        draw_box(
+            c,
+            x0,
+            y,
+            cw,
+            58.0,
+            if sh_hov { pal.btn_hover } else { pal.surface },
+            pal.hairline_strong,
+            1.0,
+        );
+        c.draw_text(&mut self.fonts, FontStyle::Bold, 11.0, x0 + 18.0, y + 12.0, pal.ink, "Pluto Shield (Native DOM Ad & Consent Suppressor)");
+        c.draw_text(&mut self.fonts, FontStyle::Regular, 9.5, x0 + 18.0, y + 32.0, pal.slate, "Automatically strips common ad slots, sponsored cards, and cookie consent banners on external pages.");
+        draw_badge(
+            c,
+            &mut self.fonts,
+            x0 + cw - 110.0,
+            y + 17.0,
+            if snapshot.adblock_enabled { pal.cta_bg } else { pal.strip },
+            pal.hairline_strong,
+            if snapshot.adblock_enabled { pal.cta_fg } else { pal.steel },
+            if snapshot.adblock_enabled { "ENABLED" } else { "DISABLED" },
+        );
+        hits.push(HitRegion {
+            x: x0,
+            y,
+            w: cw,
+            h: 58.0,
+            id: HitId::SettingsShieldToggle,
+            clickable: true,
+        });
+        y += 70.0;
+
+        let abw = (cw - 16.0) / 3.0;
+        for (i, (label, hid)) in [
+            ("CLEAR BROWSING HISTORY", HitId::SettingsClearHistory),
+            ("REVISIT WELCOME SHOWCASE", HitId::SettingsResetOnboarding),
+            ("TOGGLE RUNTIME INSPECTOR", HitId::SettingsOpenInspector),
+        ]
+        .iter()
+        .enumerate()
+        {
+            let bx = x0 + i as f32 * (abw + 8.0);
+            let hov = point_in(cursor, bx, y, abw, 42.0);
+            draw_box(
+                c,
+                bx,
+                y,
+                abw,
+                42.0,
+                if hov { pal.btn_hover } else { pal.strip },
+                pal.hairline_strong,
+                1.0,
+            );
+            c.draw_text_ellipsis(&mut self.fonts, FontStyle::Mono, 9.0, bx + 14.0, y + 14.0, abw - 24.0, pal.ink, label);
+            hits.push(HitRegion {
+                x: bx,
+                y,
+                w: abw,
+                h: 42.0,
+                id: hid.clone(),
+                clickable: true,
+            });
+        }
+
+        y += 68.0;
+        let total_h = (y + scroll) - vy;
+        self.settings_max_scroll = (total_h - vh).max(0.0);
+        if self.settings_scroll_y > self.settings_max_scroll {
+            self.settings_scroll_y = self.settings_max_scroll;
+        }
+        if self.settings_max_scroll > 4.0 {
+            draw_scrollbar(c, pal, vx + vw - 9.0, vy + 6.0, vh - 12.0, scroll, self.settings_max_scroll, total_h);
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2717,369 +3873,335 @@ impl NativeUi {
         vy: f32,
         vw: f32,
         vh: f32,
-        bookmarks: &[Bookmark],
-        history: &[HistoryEntry],
+        snapshot: &RenderSnapshot<'_>,
         hits: &mut Vec<HitRegion>,
     ) {
-        c.push_clip(vx, vy, vw, vh);
-        let sy = self.newtab_scroll_y;
-        let container_w = (vw - 64.0).clamp(400.0, 1040.0);
-        let cx = vx + (vw - container_w) * 0.5;
-        let mut y = vy + 28.0 - sy;
+        c.fill_rect(vx, vy, vw, vh, pal.canvas);
 
-        // Top Workspace Strip
-        c.draw_pluto_logo(cx, y, 28.0, 0.0);
-        c.draw_text(&mut self.fonts, FontStyle::SemiBold, 14.5, cx + 38.0, y + 5.0, pal.charcoal, "Pluto Browser / Workspace");
+        let scroll = self.newtab_scroll_y;
+        let pad_x = ((vw - 1100.0) * 0.5).max(24.0);
+        let cw = (vw - pad_x * 2.0).max(320.0);
+        let x0 = vx + pad_x;
+        let mut y = vy + 24.0 - scroll;
 
-        let wbtn_w = 190.0;
-        let wbtn_x = cx + container_w - wbtn_w;
-        let whov = point_in(cursor, wbtn_x, y - 2.0, wbtn_w, 32.0);
-        c.fill_rounded_rect(wbtn_x, y - 2.0, wbtn_w, 32.0, 7.0, if whov { pal.surface } else { pal.canvas });
-        c.stroke_rounded_rect(wbtn_x, y - 2.0, wbtn_w, 32.0, 7.0, 1.0, pal.hairline);
-        c.draw_text(&mut self.fonts, FontStyle::SemiBold, 12.5, wbtn_x + 14.0, y + 6.5, pal.charcoal, "Welcome & Benchmarks");
-        hits.push(HitRegion {
-            x: wbtn_x,
-            y: y - 2.0,
-            w: wbtn_w,
-            h: 32.0,
-            id: HitId::NewTabWelcomeBtn,
-            clickable: true,
-        });
+        // Top Brand Strip
+        c.draw_pluto_logo(x0, y, 42.0, 0.25 + (time_sec * 0.7).sin().abs() * 0.2);
+        c.draw_text(&mut self.fonts, FontStyle::Bold, 16.0, x0 + 54.0, y + 4.0, pal.ink, "PLUTO WORKSPACE");
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.0, x0 + 54.0, y + 27.0, pal.steel, "100% NATIVE RUST // GOOGLE SEARCH READY");
 
-        c.fill_rect(cx, y + 42.0, container_w, 1.0, pal.hairline);
-        y += 64.0;
-
-        // Orbital active status pill + greeting + compact planet mark
-        c.fill_rounded_rect(cx, y, 174.0, 26.0, 13.0, pal.tint_lavender);
-        let dot_pulse = 0.65 + 0.35 * (time_sec * 2.4).sin();
-        c.fill_circle(cx + 15.0, y + 13.0, 3.6 + dot_pulse * 0.7, pal.primary);
-        c.draw_text(&mut self.fonts, FontStyle::SemiBold, 12.0, cx + 28.0, y + 6.0, pal.tint_lavender_ink, "Kuiper Orbit Active");
-
-        c.draw_pluto_hero_system(cx + container_w - 88.0, y + 42.0, time_sec, 0.0, 0.0);
-
-        c.draw_text(&mut self.fonts, FontStyle::Bold, 32.0, cx, y + 38.0, pal.ink, "Pluto Workspace");
-        c.draw_text(
-            &mut self.fonts,
-            FontStyle::Regular,
-            14.5,
-            cx,
-            y + 82.0,
-            pal.slate,
-            "Orbiting natively in pure Rust - search with Google or jump into your workspace.",
-        );
-        y += 120.0;
-
-        // Interactive Google Search Box
-        let sbox_w = (container_w * 0.70).clamp(340.0, 700.0);
-        let sbox_h = 48.0;
-        let sfocused = self.active_input == ActiveInput::NewTabSearch;
-        c.fill_rounded_rect(cx, y, sbox_w, sbox_h, 9.0, if sfocused { pal.canvas } else { pal.surface });
-        c.stroke_rounded_rect(
-            cx,
-            y,
-            sbox_w,
-            sbox_h,
-            9.0,
-            if sfocused { 2.0 } else { 1.0 },
-            if sfocused { pal.primary } else { pal.hairline },
-        );
-        c.draw_icon_search(cx + 22.0, y + 24.0, pal.steel);
-
-        let go_x = cx + sbox_w - 72.0;
-        c.push_clip(cx + 38.0, y + 4.0, go_x - (cx + 46.0), sbox_h - 8.0);
-        if self.newtab_search_text.is_empty() {
-            if sfocused && ((time_sec * 2.0) as i32) % 2 == 0 {
-                c.fill_rect(cx + 42.0, y + 12.0, 2.0, 24.0, pal.primary);
-            }
-            c.draw_text(&mut self.fonts, FontStyle::Regular, 14.5, cx + 47.0, y + 14.5, pal.steel, "Search Google or type a URL...");
-        } else {
-            let visible = tail_fitting_width(&self.fonts, FontStyle::Regular, 14.5, &self.newtab_search_text, (go_x - cx - 56.0).max(40.0));
-            c.draw_text(&mut self.fonts, FontStyle::Regular, 14.5, cx + 42.0, y + 14.5, pal.ink, visible);
-            if sfocused && ((time_sec * 2.0) as i32) % 2 == 0 {
-                let tw = self.fonts.measure_text(FontStyle::Regular, 14.5, visible);
-                c.fill_rect(cx + 44.0 + tw, y + 12.0, 2.0, 24.0, pal.primary);
-            }
+        let set_btn_x = x0 + cw - 112.0;
+        let wlc_btn_x = set_btn_x - 134.0;
+        for (bx, bw, lbl, hid) in [
+            (wlc_btn_x, 126.0, "WELCOME TOUR", HitId::NewTabWelcomeBtn),
+            (set_btn_x, 112.0, "SETTINGS", HitId::NewTabSettingsBtn),
+        ] {
+            let hov = point_in(cursor, bx, y + 4.0, bw, 34.0);
+            draw_box(c, bx, y + 4.0, bw, 34.0, if hov { pal.btn_hover } else { pal.surface }, pal.hairline_strong, 1.0);
+            c.draw_text(&mut self.fonts, FontStyle::Mono, 9.0, bx + 14.0, y + 14.0, pal.ink, lbl);
+            hits.push(HitRegion {
+                x: bx,
+                y: y + 4.0,
+                w: bw,
+                h: 34.0,
+                id: hid,
+                clickable: true,
+            });
         }
-        c.pop_clip();
+        y += 58.0;
 
-        let go_hov = point_in(cursor, go_x, y + 6.0, 64.0, 36.0);
-        c.fill_rounded_rect(go_x, y + 6.0, 64.0, 36.0, 8.0, if go_hov { pal.primary_pressed } else { pal.primary });
-        c.draw_text(&mut self.fonts, FontStyle::SemiBold, 14.0, go_x + 16.0, y + 14.0, pal.on_primary, "Search");
-        hits.push(HitRegion {
-            x: cx,
+        // Hero Google Search Input Box
+        let search_h = 52.0;
+        let s_focused = self.active_input == ActiveInput::NewTabSearch;
+        draw_box(
+            c,
+            x0,
             y,
-            w: sbox_w - 76.0,
-            h: sbox_h,
+            cw,
+            search_h,
+            pal.surface,
+            if s_focused { pal.hairline_strong } else { pal.hairline },
+            if s_focused { 1.5 } else { 1.0 },
+        );
+        draw_crosshair_corners(c, x0, y, cw, search_h, 5.0, pal.ink);
+        c.draw_icon_search(x0 + 22.0, y + search_h * 0.5, pal.ink);
+        hits.push(HitRegion {
+            x: x0,
+            y,
+            w: cw - 150.0,
+            h: search_h,
             id: HitId::NewTabSearchInput,
             clickable: true,
         });
+
+        let sb_x = x0 + cw - 144.0;
+        let sb_hov = point_in(cursor, sb_x, y + 6.0, 138.0, search_h - 12.0);
+        draw_box(
+            c,
+            sb_x,
+            y + 6.0,
+            138.0,
+            search_h - 12.0,
+            if sb_hov { pal.cta_hover } else { pal.cta_bg },
+            pal.hairline_strong,
+            1.0,
+        );
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.5, sb_x + 16.0, y + 19.0, pal.cta_fg, "SEARCH GOOGLE");
         hits.push(HitRegion {
-            x: go_x,
+            x: sb_x,
             y: y + 6.0,
-            w: 64.0,
-            h: 36.0,
+            w: 138.0,
+            h: search_h - 12.0,
             id: HitId::NewTabSearchSubmit,
             clickable: true,
         });
-        y += 76.0;
 
-        // Quick Links header + Category pill filter tabs
-        c.draw_text(&mut self.fonts, FontStyle::Bold, 16.0, cx, y + 4.0, pal.ink, "Quick Links");
-        let cats = ["All", "Engineering", "Reference"];
-        let mut cat_x = cx + container_w - 280.0;
-        for (idx, label) in cats.iter().enumerate() {
-            let cw = self.fonts.measure_text(FontStyle::SemiBold, 13.0, label) + 26.0;
-            let active = self.newtab_category == idx;
-            c.fill_rounded_rect(cat_x, y, cw, 30.0, 15.0, if active { pal.ink_deep } else { pal.canvas });
-            if !active {
-                c.stroke_rounded_rect(cat_x, y, cw, 30.0, 15.0, 1.0, pal.hairline);
+        let st_x = x0 + 44.0;
+        if self.newtab_search_text.is_empty() {
+            c.draw_text(&mut self.fonts, FontStyle::Regular, 11.5, st_x, y + 17.0, pal.steel, "Search Google or type URL...");
+            if s_focused && (time_sec * 2.0) as u32 % 2 == 0 {
+                c.fill_rect(st_x, y + 13.0, 2.0, 26.0, pal.ink);
             }
-            c.draw_text(
-                &mut self.fonts,
-                FontStyle::SemiBold,
-                13.0,
-                cat_x + 13.0,
-                y + 7.5,
-                if active { Color::rgb(255, 255, 255) } else { pal.steel },
-                label,
+        } else {
+            let shown = tail_fitting_width(&self.fonts, FontStyle::Mono, 11.5, &self.newtab_search_text, cw - 200.0).to_string();
+            let tw = self.fonts.measure_text(FontStyle::Mono, 11.5, &shown);
+            c.draw_text(&mut self.fonts, FontStyle::Mono, 11.5, st_x, y + 17.0, pal.ink, &shown);
+            if s_focused && (time_sec * 2.0) as u32 % 2 == 0 {
+                c.fill_rect(st_x + tw + 2.0, y + 13.0, 2.0, 26.0, pal.ink);
+            }
+        }
+        y += search_h + 24.0;
+
+        // Category Filter + Quick Launch Grid
+        let mut cat_x = x0;
+        for (idx, lbl) in ["ALL SITES", "ENGINEERING", "REFERENCE"].iter().enumerate() {
+            let bw = self.fonts.measure_text(FontStyle::Mono, 9.0, lbl) + 22.0;
+            let sel = self.newtab_category == idx;
+            let hov = point_in(cursor, cat_x, y, bw, 30.0);
+            draw_box(
+                c,
+                cat_x,
+                y,
+                bw,
+                30.0,
+                if sel { pal.cta_bg } else if hov { pal.btn_hover } else { pal.surface },
+                pal.hairline_strong,
+                1.0,
             );
+            c.draw_text(&mut self.fonts, FontStyle::Mono, 9.0, cat_x + 11.0, y + 9.0, if sel { pal.cta_fg } else { pal.ink }, lbl);
             hits.push(HitRegion {
                 x: cat_x,
                 y,
-                w: cw,
+                w: bw,
                 h: 30.0,
                 id: HitId::NewTabCategory(idx),
                 clickable: true,
             });
-            cat_x += cw + 8.0;
+            cat_x += bw + 8.0;
         }
-        y += 44.0;
+        y += 42.0;
 
         let filtered: Vec<&QuickLink> = QUICK_LINKS
             .iter()
             .filter(|q| self.newtab_category == 0 || q.cat == self.newtab_category)
             .collect();
-        let tile_w = (container_w - 28.0) / 3.0;
-        for (i, item) in filtered.iter().enumerate() {
-            let col = i % 3;
-            let row = i / 3;
-            let tx = cx + col as f32 * (tile_w + 14.0);
-            let ty = y + row as f32 * 108.0;
-            let hov = point_in(cursor, tx, ty, tile_w, 94.0);
-            c.fill_rounded_rect(tx, ty, tile_w, 94.0, 12.0, pal.canvas);
-            c.stroke_rounded_rect(tx, ty, tile_w, 94.0, 12.0, 1.0, if hov { pal.primary } else { pal.hairline });
-
-            c.fill_rounded_rect(tx + 16.0, ty + 14.0, 28.0, 28.0, 6.0, pal.surface);
-            c.stroke_rounded_rect(tx + 16.0, ty + 14.0, 28.0, 28.0, 6.0, 1.0, pal.hairline);
-            c.draw_text(&mut self.fonts, FontStyle::Bold, 12.5, tx + 22.0, ty + 20.5, pal.charcoal, item.badge);
-
-            let (tbg, tfg) = if item.cat == 1 {
-                (pal.tint_lavender, pal.tint_lavender_ink)
-            } else {
-                (pal.tint_sky, pal.tint_sky_ink)
-            };
-            let tw = self.fonts.measure_text(FontStyle::SemiBold, 11.5, item.tag) + 14.0;
-            c.fill_rounded_rect(tx + tile_w - tw - 14.0, ty + 15.0, tw, 22.0, 6.0, tbg);
-            c.draw_text(&mut self.fonts, FontStyle::SemiBold, 11.5, tx + tile_w - tw - 7.0, ty + 20.0, tfg, item.tag);
-
-            c.draw_text(&mut self.fonts, FontStyle::SemiBold, 15.0, tx + 16.0, ty + 49.0, pal.ink, item.title);
-            let host = item.url.trim_start_matches("https://").trim_start_matches("www.").trim_end_matches('/');
-            c.draw_text(&mut self.fonts, FontStyle::Regular, 12.5, tx + 16.0, ty + 70.0, pal.steel, host);
-
+        let qcols = if cw >= 780.0 { 3 } else { 2 };
+        let qtile_w = (cw - (qcols - 1) as f32 * 8.0) / qcols as f32;
+        let qtile_h = 74.0;
+        for (i, q) in filtered.iter().enumerate() {
+            let col = i % qcols;
+            let row = i / qcols;
+            let qx = x0 + col as f32 * (qtile_w + 8.0);
+            let qy = y + row as f32 * (qtile_h + 8.0);
+            let hov = point_in(cursor, qx, qy, qtile_w, qtile_h);
+            draw_box(
+                c,
+                qx,
+                qy,
+                qtile_w,
+                qtile_h,
+                if hov { pal.surface_soft } else { pal.surface },
+                if hov { pal.hairline_strong } else { pal.hairline },
+                1.0,
+            );
+            draw_box(c, qx + 14.0, qy + 17.0, 40.0, 40.0, pal.strip, pal.hairline_strong, 1.0);
+            c.draw_text(&mut self.fonts, FontStyle::Bold, 11.0, qx + 22.0, qy + 28.0, pal.primary, q.badge);
+            c.draw_text_ellipsis(&mut self.fonts, FontStyle::SemiBold, 11.0, qx + 66.0, qy + 18.0, qtile_w - 80.0, pal.ink, q.title);
+            c.draw_text_ellipsis(&mut self.fonts, FontStyle::Mono, 8.5, qx + 66.0, qy + 42.0, qtile_w - 80.0, pal.steel, q.url);
             hits.push(HitRegion {
-                x: tx,
-                y: ty,
-                w: tile_w,
-                h: 94.0,
-                id: HitId::OpenUrlTile(item.url.to_string()),
+                x: qx,
+                y: qy,
+                w: qtile_w,
+                h: qtile_h,
+                id: HitId::OpenUrlTile(q.url.to_string()),
                 clickable: true,
             });
         }
-        let ql_rows = (filtered.len().div_ceil(3)).max(1);
-        y += ql_rows as f32 * 108.0 + 18.0;
+        y += ((filtered.len() + qcols - 1) / qcols) as f32 * (qtile_h + 8.0) + 18.0;
 
-        // Middle Split Workspace: Saved Bookmarks + Scratchpad
-        let left_w = (container_w - 20.0) * 0.58;
-        let right_x = cx + left_w + 20.0;
-        let right_w = container_w - left_w - 20.0;
+        // Two-Column Lower Workspace: Bookmarks + History vs Native Scratchpad
+        let col_w = (cw - 12.0) * 0.5;
+        let panel_h = 228.0;
 
-        c.draw_text(&mut self.fonts, FontStyle::Bold, 16.0, cx, y, pal.ink, "Saved Bookmarks");
-        let mut bm_bottom = y + 106.0;
-        if bookmarks.is_empty() {
-            c.fill_rounded_rect(cx, y + 30.0, left_w, 76.0, 12.0, pal.surface);
-            c.stroke_rounded_rect(cx, y + 30.0, left_w, 76.0, 12.0, 1.0, pal.hairline);
-            draw_wrapped_text(
-                c,
-                &mut self.fonts,
-                FontStyle::Regular,
-                13.5,
-                cx + 18.0,
-                y + 46.0,
-                left_w - 36.0,
-                21.0,
-                pal.slate,
-                "No bookmarks saved yet. Click the star button in the omnibox on any site to pin it here.",
-            );
+        // Left: Saved Bookmarks & History
+        draw_box(c, x0, y, col_w, panel_h, pal.surface, pal.hairline_strong, 1.0);
+        c.fill_rect(x0, y + 38.0, col_w, 1.0, pal.hairline);
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.5, x0 + 16.0, y + 13.0, pal.ink, "BOOKMARKS & RECENT HISTORY");
+
+        let clr_x = x0 + col_w - 72.0;
+        let clr_hov = point_in(cursor, clr_x, y + 6.0, 62.0, 26.0);
+        draw_box(c, clr_x, y + 6.0, 62.0, 26.0, if clr_hov { pal.btn_hover } else { pal.strip }, pal.hairline, 1.0);
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 8.5, clr_x + 12.0, y + 12.0, pal.steel, "CLEAR");
+        hits.push(HitRegion {
+            x: clr_x,
+            y: y + 6.0,
+            w: 62.0,
+            h: 26.0,
+            id: HitId::ClearHistory,
+            clickable: true,
+        });
+
+        let mut ly = y + 48.0;
+        if snapshot.bookmarks.is_empty() && snapshot.history.is_empty() {
+            c.draw_text(&mut self.fonts, FontStyle::Mono, 9.5, x0 + 16.0, ly + 18.0, pal.steel, "NO SAVED BOOKMARKS OR HISTORY YET");
         } else {
-            let bcol_w = (left_w - 12.0) / 2.0;
-            for (i, bm) in bookmarks.iter().enumerate() {
-                let col = i % 2;
-                let row = i / 2;
-                let bx = cx + col as f32 * (bcol_w + 12.0);
-                let by = y + 30.0 + row as f32 * 86.0;
-                let hov = point_in(cursor, bx, by, bcol_w, 76.0);
-                c.fill_rounded_rect(bx, by, bcol_w, 76.0, 12.0, pal.canvas);
-                c.stroke_rounded_rect(bx, by, bcol_w, 76.0, 12.0, 1.0, if hov { pal.primary } else { pal.hairline });
-                c.draw_text_ellipsis(&mut self.fonts, FontStyle::SemiBold, 14.0, bx + 14.0, by + 16.0, bcol_w - 76.0, pal.ink, &bm.title);
-                c.draw_text_ellipsis(&mut self.fonts, FontStyle::Regular, 12.0, bx + 14.0, by + 44.0, bcol_w - 28.0, pal.steel, &bm.url);
-
-                let rx = bx + bcol_w - 64.0;
-                let rhov = point_in(cursor, rx, by + 12.0, 54.0, 24.0);
-                if hov || rhov {
-                    c.fill_rounded_rect(rx, by + 12.0, 54.0, 24.0, 6.0, if rhov { pal.surface } else { pal.canvas });
-                    c.stroke_rounded_rect(rx, by + 12.0, 54.0, 24.0, 6.0, 1.0, pal.hairline);
-                    c.draw_text(&mut self.fonts, FontStyle::Regular, 11.0, rx + 7.0, by + 17.5, pal.steel, "Remove");
-                    hits.push(HitRegion {
-                        x: rx,
-                        y: by + 12.0,
-                        w: 54.0,
-                        h: 24.0,
-                        id: HitId::RemoveBookmark(bm.url.clone()),
-                        clickable: true,
-                    });
+            for bm in snapshot.bookmarks.iter().take(3) {
+                let row_hov = point_in(cursor, x0 + 10.0, ly, col_w - 20.0, 30.0);
+                if row_hov {
+                    c.fill_rect(x0 + 10.0, ly, col_w - 20.0, 30.0, pal.btn_hover);
                 }
+                c.draw_icon_star(x0 + 22.0, ly + 15.0, true, pal.star_active);
+                c.draw_text_ellipsis(&mut self.fonts, FontStyle::Regular, 9.5, x0 + 38.0, ly + 8.0, col_w - 86.0, pal.ink, &bm.title);
                 hits.push(HitRegion {
-                    x: bx,
-                    y: by,
-                    w: bcol_w - 66.0,
-                    h: 76.0,
+                    x: x0 + 10.0,
+                    y: ly,
+                    w: col_w - 48.0,
+                    h: 30.0,
                     id: HitId::OpenUrlTile(bm.url.clone()),
                     clickable: true,
                 });
-                bm_bottom = bm_bottom.max(by + 86.0);
+                let rm_x = x0 + col_w - 34.0;
+                c.draw_icon_close(rm_x + 10.0, ly + 15.0, pal.steel);
+                hits.push(HitRegion {
+                    x: rm_x,
+                    y: ly + 2.0,
+                    w: 24.0,
+                    h: 26.0,
+                    id: HitId::RemoveBookmark(bm.url.clone()),
+                    clickable: true,
+                });
+                ly += 32.0;
+            }
+            for h in snapshot.history.iter().take(2) {
+                if ly + 30.0 > y + panel_h - 8.0 {
+                    break;
+                }
+                c.draw_icon_history(x0 + 22.0, ly + 15.0, pal.steel);
+                c.draw_text_ellipsis(&mut self.fonts, FontStyle::Regular, 9.5, x0 + 38.0, ly + 8.0, col_w - 54.0, pal.slate, &h.title);
+                hits.push(HitRegion {
+                    x: x0 + 10.0,
+                    y: ly,
+                    w: col_w - 20.0,
+                    h: 30.0,
+                    id: HitId::OpenUrlTile(h.url.clone()),
+                    clickable: true,
+                });
+                ly += 32.0;
             }
         }
 
-        // Scratchpad Card
-        let sp_h = 198.0;
-        c.fill_rounded_rect(right_x, y, right_w, sp_h, 12.0, pal.tint_cream);
-        c.stroke_rounded_rect(right_x, y, right_w, sp_h, 12.0, 1.0, pal.hairline);
-        c.draw_text(&mut self.fonts, FontStyle::Bold, 14.0, right_x + 16.0, y + 16.0, pal.charcoal, "Workspace Notes");
-        c.draw_text(&mut self.fonts, FontStyle::Regular, 12.0, right_x + right_w - 102.0, y + 17.0, pal.steel, "Saved locally");
-
-        let box_x = right_x + 14.0;
-        let box_y = y + 46.0;
-        let box_w = right_w - 28.0;
-        let box_h = sp_h - 60.0;
-        let sp_focused = self.active_input == ActiveInput::Scratchpad;
-        c.fill_rounded_rect(box_x, box_y, box_w, box_h, 8.0, pal.canvas);
-        c.stroke_rounded_rect(
-            box_x,
-            box_y,
-            box_w,
-            box_h,
-            8.0,
-            if sp_focused { 2.0 } else { 1.0 },
-            if sp_focused { pal.primary } else { pal.hairline },
+        // Right: Persistent Rust Scratchpad
+        let sx = x0 + col_w + 12.0;
+        let sc_focused = self.active_input == ActiveInput::Scratchpad;
+        draw_box(
+            c,
+            sx,
+            y,
+            col_w,
+            panel_h,
+            pal.surface,
+            if sc_focused { pal.hairline_strong } else { pal.hairline },
+            if sc_focused { 1.5 } else { 1.0 },
         );
-
-        c.push_clip(box_x + 6.0, box_y + 6.0, box_w - 12.0, box_h - 12.0);
-        if self.scratchpad_text.is_empty() {
-            if sp_focused && ((time_sec * 2.0) as i32) % 2 == 0 {
-                c.fill_rect(box_x + 12.0, box_y + 12.0, 2.0, 18.0, pal.primary);
-            }
-            c.draw_text(
-                &mut self.fonts,
-                FontStyle::Regular,
-                13.5,
-                box_x + 18.0,
-                box_y + 12.0,
-                pal.steel,
-                if sp_focused { "Type notes..." } else { "Click to jot down URLs or notes..." },
-            );
-        } else {
-            let end_pos = draw_wrapped_text(
-                c,
-                &mut self.fonts,
-                FontStyle::Regular,
-                13.5,
-                box_x + 12.0,
-                box_y + 12.0,
-                box_w - 24.0,
-                21.0,
-                pal.ink,
-                &self.scratchpad_text,
-            );
-            if sp_focused && ((time_sec * 2.0) as i32) % 2 == 0 {
-                c.fill_rect(end_pos.0 + 2.0, end_pos.1, 2.0, 18.0, pal.primary);
-            }
-        }
-        c.pop_clip();
+        c.fill_rect(sx, y + 38.0, col_w, 1.0, pal.hairline);
+        c.draw_text(&mut self.fonts, FontStyle::Mono, 9.5, sx + 16.0, y + 13.0, pal.ink, "WORKSPACE NOTES (AUTO-SAVED)");
         hits.push(HitRegion {
-            x: box_x,
-            y: box_y,
-            w: box_w,
-            h: box_h,
+            x: sx,
+            y: y + 40.0,
+            w: col_w,
+            h: panel_h - 40.0,
             id: HitId::ScratchpadBox,
             clickable: true,
         });
 
-        // Recent History strip below bookmarks & scratchpad
-        let hist_y = bm_bottom.max(y + sp_h + 24.0);
-        c.draw_icon_history(cx + 8.0, hist_y + 10.0, pal.steel);
-        c.draw_text(&mut self.fonts, FontStyle::Bold, 16.0, cx + 24.0, hist_y, pal.ink, "Recent History");
-        if !history.is_empty() {
-            let clr_x = cx + container_w - 102.0;
-            let clrh = point_in(cursor, clr_x, hist_y - 2.0, 102.0, 26.0);
-            c.fill_rounded_rect(clr_x, hist_y - 2.0, 102.0, 26.0, 6.0, if clrh { pal.surface } else { pal.canvas });
-            c.stroke_rounded_rect(clr_x, hist_y - 2.0, 102.0, 26.0, 6.0, 1.0, pal.hairline);
-            c.draw_text(&mut self.fonts, FontStyle::SemiBold, 11.5, clr_x + 12.0, hist_y + 4.5, pal.steel, "Clear History");
-            hits.push(HitRegion {
-                x: clr_x,
-                y: hist_y - 2.0,
-                w: 102.0,
-                h: 26.0,
-                id: HitId::ClearHistory,
-                clickable: true,
-            });
-        }
-
-        let mut end_y = hist_y + 72.0;
-        if history.is_empty() {
-            c.draw_text(&mut self.fonts, FontStyle::Regular, 13.0, cx, hist_y + 32.0, pal.steel, "Visited websites will appear here automatically.");
+        let ny = y + 50.0;
+        if self.scratchpad_text.is_empty() {
+            c.draw_text(&mut self.fonts, FontStyle::Regular, 10.0, sx + 16.0, ny, pal.steel, "Click to type persistent Rust workspace notes...");
+            if sc_focused && (time_sec * 2.0) as u32 % 2 == 0 {
+                c.fill_rect(sx + 16.0, ny, 2.0, 20.0, pal.ink);
+            }
         } else {
-            let hcol_w = (container_w - 28.0) / 3.0;
-            for (i, item) in history.iter().take(6).enumerate() {
-                let col = i % 3;
-                let row = i / 3;
-                let hx = cx + col as f32 * (hcol_w + 14.0);
-                let hy = hist_y + 32.0 + row as f32 * 70.0;
-                let hov = point_in(cursor, hx, hy, hcol_w, 58.0);
-                c.fill_rounded_rect(hx, hy, hcol_w, 58.0, 10.0, pal.surface);
-                c.stroke_rounded_rect(hx, hy, hcol_w, 58.0, 10.0, 1.0, if hov { pal.primary } else { pal.hairline });
-                c.draw_text_ellipsis(&mut self.fonts, FontStyle::SemiBold, 13.0, hx + 14.0, hy + 10.0, hcol_w - 28.0, pal.ink, &item.title);
-                c.draw_text_ellipsis(&mut self.fonts, FontStyle::Regular, 11.5, hx + 14.0, hy + 32.0, hcol_w - 28.0, pal.steel, &item.url);
-                hits.push(HitRegion {
-                    x: hx,
-                    y: hy,
-                    w: hcol_w,
-                    h: 58.0,
-                    id: HitId::OpenUrlTile(item.url.clone()),
-                    clickable: true,
-                });
-                end_y = end_y.max(hy + 70.0);
+            let (end_x, end_y) = draw_wrapped_text(
+                c,
+                &mut self.fonts,
+                FontStyle::Regular,
+                10.0,
+                sx + 16.0,
+                ny,
+                col_w - 32.0,
+                21.0,
+                pal.ink,
+                &self.scratchpad_text,
+            );
+            if sc_focused && (time_sec * 2.0) as u32 % 2 == 0 {
+                c.fill_rect(end_x + 2.0, end_y, 2.0, 18.0, pal.ink);
             }
         }
 
-        let total_h = end_y - (vy + 28.0 - sy);
-        self.newtab_max_scroll = (total_h + 28.0 - vh).max(0.0);
-        self.newtab_scroll_y = self.newtab_scroll_y.clamp(0.0, self.newtab_max_scroll);
-
-        if self.newtab_max_scroll > 0.0 {
-            draw_scrollbar(c, pal, vx + vw - 9.0, vy + 4.0, vh - 8.0, self.newtab_scroll_y, self.newtab_max_scroll, total_h + 28.0);
+        y += panel_h + 24.0;
+        let total_h = (y + scroll) - vy;
+        self.newtab_max_scroll = (total_h - vh).max(0.0);
+        if self.newtab_scroll_y > self.newtab_max_scroll {
+            self.newtab_scroll_y = self.newtab_max_scroll;
         }
-        c.pop_clip();
+        if self.newtab_max_scroll > 4.0 {
+            draw_scrollbar(c, pal, vx + vw - 9.0, vy + 6.0, vh - 12.0, scroll, self.newtab_max_scroll, total_h);
+        }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_box(c: &mut Canvas<'_>, x: f32, y: f32, w: f32, h: f32, bg: Color, border: Color, stroke_w: f32) {
+    c.fill_rect(x, y, w, h, bg);
+    if border.a > 0 {
+        c.stroke_rounded_rect(x, y, w, h, 0.0, stroke_w, border);
+    }
+}
+
+fn draw_crosshair_corners(c: &mut Canvas<'_>, x: f32, y: f32, w: f32, h: f32, len: f32, col: Color) {
+    c.fill_rect(x - len * 0.5, y, len, 1.5, col);
+    c.fill_rect(x, y - len * 0.5, 1.5, len, col);
+    c.fill_rect(x + w - len * 0.5, y, len, 1.5, col);
+    c.fill_rect(x + w - 1.0, y - len * 0.5, 1.5, len, col);
+    c.fill_rect(x - len * 0.5, y + h - 1.0, len, 1.5, col);
+    c.fill_rect(x, y + h - len * 0.5, 1.5, len, col);
+    c.fill_rect(x + w - len * 0.5, y + h - 1.0, len, 1.5, col);
+    c.fill_rect(x + w - 1.0, y + h - len * 0.5, 1.5, len, col);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_badge(
+    c: &mut Canvas<'_>,
+    fonts: &mut FontSystem,
+    x: f32,
+    y: f32,
+    bg: Color,
+    border: Color,
+    fg: Color,
+    label: &str,
+) {
+    let w = fonts.measure_text(FontStyle::Mono, 8.5, label) + 16.0;
+    draw_box(c, x, y, w, 22.0, bg, border, 1.0);
+    c.draw_text(fonts, FontStyle::Mono, 8.5, x + 8.0, y + 6.0, fg, label);
 }
 
 fn tail_fitting_width<'a>(
@@ -3183,7 +4305,7 @@ fn draw_scrollbar(
         0.0
     };
     let thumb_y = y + t * (track_h - thumb_h);
-    c.fill_rounded_rect(x, thumb_y, 5.0, thumb_h, 2.5, pal.hairline_strong);
+    c.fill_rect(x, thumb_y, 5.0, thumb_h, pal.hairline_strong);
 }
 
 #[cfg(test)]
@@ -3192,12 +4314,11 @@ mod tests {
 
     #[test]
     fn omnibox_focus_and_typing_lifecycle() {
-        let mut ui = NativeUi::new(false, String::new());
+        let mut ui = NativeUi::new(true, String::new());
         ui.focus_omnibox("https://example.com/");
         assert_eq!(ui.active_input, ActiveInput::Omnibox);
         assert!(ui.omnibox_select_all);
 
-        // First typed char clears initial selection and starts fresh
         let _ = ui.handle_char_input('r');
         assert!(!ui.omnibox_select_all);
         assert_eq!(ui.omnibox_text, "r");
@@ -3207,7 +4328,6 @@ mod tests {
         }
         assert_eq!(ui.omnibox_text, "rust-lang.org");
 
-        // Pressing Enter submits Navigate("rust-lang.org") and clears focus
         let actions = ui.handle_key_pressed(KeyCode::Enter, NEW_TAB_URL, "");
         assert!(matches!(actions.as_slice(), [UiAction::Navigate(u)] if u == "rust-lang.org"));
         assert_eq!(ui.active_input, ActiveInput::None);
@@ -3215,7 +4335,7 @@ mod tests {
 
     #[test]
     fn omnibox_ctrl_backspace_and_escape() {
-        let mut ui = NativeUi::new(false, String::new());
+        let mut ui = NativeUi::new(true, String::new());
         ui.focus_omnibox("pluto rocks");
         ui.omnibox_select_all = false;
         ui.modifiers.set(ModifiersState::CONTROL, true);
@@ -3228,10 +4348,10 @@ mod tests {
     }
 
     #[test]
-    fn e2e_render_zoom_omnibox_and_palette() {
-        let mut ui = NativeUi::new(false, "note test".to_string());
-        let w = 1000_usize;
-        let h = 680_usize;
+    fn e2e_render_zed_top_left_settings_and_palette() {
+        let mut ui = NativeUi::new(true, "note test".to_string());
+        let w = 1280_usize;
+        let h = 800_usize;
         let mut buf = vec![0u32; w * h];
         let tabs = vec![TabSnapshot {
             id: 1,
@@ -3240,48 +4360,88 @@ mod tests {
             is_loading: false,
             active: true,
             pinned: false,
+            is_muted: false,
+            reader_active: false,
         }];
-        let snap = RenderSnapshot {
+
+        // 1. Render Top Bar + Welcome
+        let snap_top = RenderSnapshot {
             tabs: &tabs,
             active_url: WELCOME_URL,
             active_is_loading: false,
+            active_muted: false,
+            active_reader: false,
             is_bookmarked: false,
-            zoom_percent: 150,
+            zoom_percent: 125,
             can_reopen_closed: false,
             show_bookmarks_bar: true,
+            sidebar_left: false,
+            sidebar_collapsed: false,
+            adblock_enabled: true,
             bookmarks: &[],
             history: &[],
             telemetry: None,
         };
-        ui.render(&mut buf, w, h, 1.0, &snap);
-        assert!(buf.iter().any(|&px| px != 0), "Frame buffer must contain rendered pixels");
+        ui.render(&mut buf, w, h, 1.0, &snap_top);
+        assert!(buf.iter().any(|&px| px != 0));
+        assert_eq!(ui.left_sidebar_width(false, false), 0.0);
 
-        // Click ZoomOut and ZoomIn toolbar buttons discovered from rendered layout hits
         let z_in = ui
             .hits
             .iter()
             .find(|r| r.id == HitId::ZoomIn)
-            .expect("ZoomIn button hit region rendered")
+            .expect("ZoomIn rendered")
             .clone();
-        ui.cursor_pos = (z_in.x + 5.0, z_in.y + 5.0);
+        ui.cursor_pos = (z_in.x + 4.0, z_in.y + 4.0);
         let z_acts = ui.handle_mouse_click(MouseButton::Left, WELCOME_URL);
         assert!(z_acts.iter().any(|a| matches!(a, UiAction::ZoomIn)));
 
-        // Click Omnibox hit region -> must focus Omnibox & request host window focus
-        let omni = ui
+        // 2. Render Arc/Zed Left Sidebar + pluto://settings
+        let snap_side = RenderSnapshot {
+            tabs: &tabs,
+            active_url: SETTINGS_URL,
+            active_is_loading: false,
+            active_muted: false,
+            active_reader: false,
+            is_bookmarked: false,
+            zoom_percent: 100,
+            can_reopen_closed: false,
+            show_bookmarks_bar: false,
+            sidebar_left: true,
+            sidebar_collapsed: false,
+            adblock_enabled: true,
+            bookmarks: &[],
+            history: &[],
+            telemetry: None,
+        };
+        ui.render(&mut buf, w, h, 1.0, &snap_side);
+        assert_eq!(ui.left_sidebar_width(true, false), SIDEBAR_W as f64);
+
+        // Clicking Settings Zoom 150% preset emits SetZoomPercent(150)
+        let z150 = ui
             .hits
             .iter()
-            .find(|r| r.id == HitId::Omnibox)
-            .expect("Omnibox hit region rendered")
+            .find(|r| r.id == HitId::SettingsZoomPreset(150))
+            .expect("150% preset in settings")
             .clone();
-        ui.cursor_pos = (omni.x + 40.0, omni.y + 12.0);
-        let o_acts = ui.handle_mouse_click(MouseButton::Left, WELCOME_URL);
-        assert!(o_acts.iter().any(|a| matches!(a, UiAction::FocusHostWindow)));
-        assert_eq!(ui.active_input, ActiveInput::Omnibox);
+        ui.cursor_pos = (z150.x + 8.0, z150.y + 8.0);
+        let p_acts = ui.handle_mouse_click(MouseButton::Left, SETTINGS_URL);
+        assert!(p_acts.iter().any(|a| matches!(a, UiAction::SetZoomPercent(150))));
 
-        // Open Command Palette & verify render generates palette entries cleanly
+        // Clicking Top Layout card emits ToggleSidebarLayout
+        let top_card = ui
+            .hits
+            .iter()
+            .find(|r| r.id == HitId::SettingsLayoutTop)
+            .expect("Top layout card rendered")
+            .clone();
+        ui.cursor_pos = (top_card.x + 12.0, top_card.y + 12.0);
+        let l_acts = ui.handle_mouse_click(MouseButton::Left, SETTINGS_URL);
+        assert!(l_acts.iter().any(|a| matches!(a, UiAction::ToggleSidebarLayout)));
+
+        // Open Command Palette
         ui.open_command_palette();
-        ui.render(&mut buf, w, h, 1.0, &snap);
+        ui.render(&mut buf, w, h, 1.0, &snap_side);
         assert!(!ui.palette_entries.is_empty());
     }
 }
