@@ -39,8 +39,8 @@ fn default_zoom_one() -> f64 {
 pub struct AppSettings {
     #[serde(default)]
     pub onboarding_completed: bool,
-    /// Pure-Black Zed architectural dark grid is enabled by default.
-    #[serde(default = "default_true")]
+    /// Clean Apple + Notion Daylight Light theme is enabled by default.
+    #[serde(default)]
     pub dark_mode: bool,
     #[serde(default)]
     pub workspace_note: String,
@@ -48,7 +48,7 @@ pub struct AppSettings {
     pub show_bookmarks_bar: bool,
     #[serde(default = "default_zoom_one")]
     pub ui_zoom: f64,
-    /// false = Top horizontal tab bar, true = Arc/Zed-style left vertical sidebar.
+    /// false = Top horizontal tab bar, true = Arc-style left vertical sidebar.
     #[serde(default)]
     pub sidebar_left: bool,
     #[serde(default)]
@@ -61,7 +61,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             onboarding_completed: false,
-            dark_mode: true,
+            dark_mode: false,
             workspace_note: String::new(),
             show_bookmarks_bar: true,
             ui_zoom: 1.0,

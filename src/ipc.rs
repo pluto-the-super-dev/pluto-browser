@@ -26,6 +26,7 @@ pub enum TabIpcMessage {
     ToggleBookmarksBar,
     DuplicateActiveTab,
     ToggleReaderMode,
+    ToggleNightMode,
     ToggleMute,
     CopyMarkdown,
     OpenDevtools,
@@ -171,6 +172,49 @@ fn infer_scheme_for_host(host: &str) -> Option<&'static str> {
     }
 }
 
+/// Strips common cross-site tracking query parameters (`utm_*`, `fbclid`, `gclid`, etc.)
+/// purely in Rust while preserving search & content query parameters.
+pub fn strip_tracking_params(raw_url: &str) -> (String, usize) {
+    let Ok(mut parsed) = Url::parse(raw_url) else {
+        return (raw_url.to_string(), 0);
+    };
+    if parsed.query().is_none() {
+        return (raw_url.to_string(), 0);
+    }
+
+    const TRACKING_KEYS: &[&str] = &[
+        "fbclid", "gclid", "dclid", "gbraid", "wbraid", "msclkid", "yclid", "mc_cid", "mc_eid",
+        "igshid", "si", "_hsenc", "_hsmi", "ref_src", "vero_id",
+    ];
+
+    let mut kept: Vec<(String, String)> = Vec::new();
+    let mut removed = 0usize;
+    for (k, v) in parsed.query_pairs() {
+        let lower = k.to_ascii_lowercase();
+        let is_utm = lower.starts_with("utm_");
+        if is_utm || TRACKING_KEYS.contains(&lower.as_str()) {
+            removed += 1;
+        } else {
+            kept.push((k.into_owned(), v.into_owned()));
+        }
+    }
+
+    if removed == 0 {
+        return (raw_url.to_string(), 0);
+    }
+
+    if kept.is_empty() {
+        parsed.set_query(None);
+    } else {
+        let mut pairs = parsed.query_pairs_mut();
+        pairs.clear();
+        for (k, v) in kept {
+            pairs.append_pair(&k, &v);
+        }
+    }
+    (parsed.to_string(), removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,5 +264,18 @@ mod tests {
             resolve_omnibox_input("hello"),
             "https://www.google.com/search?q=hello"
         );
+    }
+
+    #[test]
+    fn strips_tracking_query_params_cleanly() {
+        let (clean, count) = strip_tracking_params(
+            "https://example.com/article?id=42&utm_source=twitter&utm_medium=social&fbclid=abc123",
+        );
+        assert_eq!(count, 3);
+        assert_eq!(clean, "https://example.com/article?id=42");
+
+        let (plain, removed) = strip_tracking_params("https://www.google.com/search?q=pluto+rust");
+        assert_eq!(removed, 0);
+        assert_eq!(plain, "https://www.google.com/search?q=pluto+rust");
     }
 }

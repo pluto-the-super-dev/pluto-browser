@@ -1,6 +1,7 @@
 use crate::clipboard;
 use crate::ipc::{
-    resolve_omnibox_input, TabIpcMessage, UserEvent, NEW_TAB_URL, SETTINGS_URL, WELCOME_URL,
+    resolve_omnibox_input, strip_tracking_params, TabIpcMessage, UserEvent, NEW_TAB_URL,
+    SETTINGS_URL, WELCOME_URL,
 };
 use crate::storage::{AppSettings, Bookmark, HistoryEntry, SessionData, StorageManager};
 use crate::tabs::{derive_title_from_url, display_url, TabManager};
@@ -527,17 +528,33 @@ impl AppState {
                         need_sync = true;
                     }
                     UiAction::CopyActiveUrl => {
-                        let url = self.active_url_str().to_string();
-                        if clipboard::set_clipboard_text(&url) {
-                            self.ui.show_toast("URL copied");
+                        let raw = self.active_url_str().to_string();
+                        let (clean, removed) = strip_tracking_params(&raw);
+                        if clipboard::set_clipboard_text(&clean) {
+                            if removed > 0 {
+                                self.ui.show_toast(format!(
+                                    "Clean link copied ({removed} tracker{} stripped)",
+                                    if removed == 1 { "" } else { "s" }
+                                ));
+                            } else {
+                                self.ui.show_toast("Link copied");
+                            }
                             need_draw = true;
                         }
                     }
                     UiAction::CopyMarkdown => {
                         if let Some(tab) = self.tabs.active_tab() {
-                            let md = format!("[{}]({})", tab.title, tab.url);
+                            let (clean, removed) = strip_tracking_params(&tab.url);
+                            let md = format!("[{}]({})", tab.title, clean);
                             if clipboard::set_clipboard_text(&md) {
-                                self.ui.show_toast("Copied as Markdown");
+                                if removed > 0 {
+                                    self.ui.show_toast(format!(
+                                        "Markdown copied ({removed} tracker{} stripped)",
+                                        if removed == 1 { "" } else { "s" }
+                                    ));
+                                } else {
+                                    self.ui.show_toast("Copied as Markdown");
+                                }
                                 need_draw = true;
                             }
                         }
@@ -596,6 +613,15 @@ impl AppState {
                             "Reader Mode ON"
                         } else {
                             "Reader Mode OFF"
+                        });
+                        need_draw = true;
+                    }
+                    UiAction::ToggleNightMode => {
+                        let active = self.tabs.toggle_night_active();
+                        self.ui.show_toast(if active {
+                            "Web Night Eye ON"
+                        } else {
+                            "Web Night Eye OFF"
                         });
                         need_draw = true;
                     }
@@ -786,6 +812,9 @@ impl AppState {
             TabIpcMessage::ToggleReaderMode => {
                 self.execute_ui_actions(vec![UiAction::ToggleReaderMode])
             }
+            TabIpcMessage::ToggleNightMode => {
+                self.execute_ui_actions(vec![UiAction::ToggleNightMode])
+            }
             TabIpcMessage::ToggleMute => {
                 self.execute_ui_actions(vec![UiAction::ToggleMute])
             }
@@ -952,6 +981,7 @@ impl AppState {
                 tab.title = derive_title_from_url(&tab.url);
                 tab.favicon = None;
                 tab.reader_active = false;
+                tab.night_active = false;
             }
             if !is_loading && !NativeUi::is_internal_page(&tab.url) {
                 StorageManager::record_history_entry(&mut self.history, &tab.title, &tab.url);
@@ -1045,6 +1075,7 @@ impl AppState {
         let active_is_loading = self.tabs.active_tab().is_some_and(|t| t.is_loading);
         let active_muted = self.tabs.active_tab().is_some_and(|t| t.is_muted);
         let active_reader = self.tabs.active_tab().is_some_and(|t| t.reader_active);
+        let active_night = self.tabs.active_tab().is_some_and(|t| t.night_active);
         let zoom_percent = self
             .tabs
             .active_tab()
@@ -1073,6 +1104,7 @@ impl AppState {
                 pinned: t.pinned,
                 is_muted: t.is_muted,
                 reader_active: t.reader_active,
+                night_active: t.night_active,
             })
             .collect();
 
@@ -1082,6 +1114,7 @@ impl AppState {
             active_is_loading,
             active_muted,
             active_reader,
+            active_night,
             is_bookmarked,
             zoom_percent,
             can_reopen_closed: !self.closed_tabs.is_empty(),

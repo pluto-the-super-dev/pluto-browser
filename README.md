@@ -21,19 +21,20 @@ No HTML/CSS/JS chrome files, no Electron wrapper, and no Node.js build pipeline.
 
 ## Features
 
-- **Zed Pure Black & White 0px Architectural Grid UI (100% Native Rust)**:
-  - **Sharp Box-Grid Aesthetics (`0px` corners + `1px` crisp hairlines)**: Pure `#08080a` Obsidian Black canvas and `#ffffff` Stark Paper light grid mode, scaled-up typography (`FONT_SCALE = 1.38`), and subtle architectural crosshair corners rendered directly into the `softbuffer` pixel buffer via `src/ui/canvas.rs`.
+- **Clean Modern Apple + Notion UI (100% Native Rust)**:
+  - **Refined Apple & Notion Aesthetics (Zero Purple Lines)**: Warm `#ffffff` / `#f5f5f4` Apple Daylight Light Mode by default and `#161618` Cupertino Midnight Dark Mode, anti-aliased SDF rounded cards (`8px`–`16px`), soft ambient shadows, Notion pastel category badges, and enlarged crisp typography (`FONT_SCALE = 1.42`) rendered directly into `softbuffer` via `src/ui/canvas.rs`.
   - **Damage-Rect Partial Presentation**: On internal Rust views (`pluto://welcome`, `pluto://newtab`, `pluto://settings`), Pluto Browser renders the entire window from Rust with **zero child WebView processes**. When browsing external pages, `softbuffer::Buffer::present_with_damage` blits the Left Sidebar, Top Chrome Strip, and Bottom Inspector Dock cleanly with zero flicker over the child WebView viewport.
 - **Customizable Navigation Layout & Native Settings (`pluto://settings`, `Ctrl+,`)**:
-  - Switch effortlessly between **Top Horizontal Strip** (`46px` tabs + `56px` toolbar) and **Arc / Zed Left Sidebar** (`256px` vertical sidebar with Favorites 3x2 grid, vertical tabs list, collapsible with `Ctrl+B`, and single-row `56px` omnibox header).
-  - Native UI & page zoom presets (`80%` to `175%`), grid theme selector, Pluto Shield toggle, history eraser, and onboarding reset right inside `pluto://settings`.
-- **Orbital Telemetry Showcase (`pluto://welcome`)**:
-  - Asymmetric split hero grid, live cursor-tracking 60 FPS **Planet Pluto Orbital Telemetry Radar**, 4-card quantitative benchmark strip (`14 MB` shell RAM, `< 1.8 ms` frame time, `42 ms` cold startup, `0 lines` HTML/JS chrome), 5-column browser comparison table vs Chrome/Arc/Brave, interactive capability tabs, and startup destination picker.
-- **Pluto Shield, Reader Mode & Power Productivity Tools**:
+  - Switch effortlessly between **Classic Top Tabs** (`48px` tabs + `58px` toolbar) and **Arc Left Sidebar** (`268px` vertical sidebar with Favorites 3x2 pastel Bento grid, vertical tabs list, collapsible with `Ctrl+B`, and single-row `58px` omnibox header).
+  - Native page zoom presets (`80%` to `175%`), Daylight/Midnight theme selector, Pluto Shield toggle, history eraser, and onboarding replay right inside `pluto://settings`.
+- **Awwwards-Class Welcome Showcase (`pluto://welcome`)**:
+  - Editorial Apple + Notion hero with live 60 FPS **Celestial Pluto & Charon Orbital Card**, 1-click Live Workspace Preview switches (`Top Tabs` / `Arc Sidebar` & `Daylight` / `Midnight`), user-friendly comparison cards (`0.05s` Instant Launch, `1.4 MB` Featherlight App, `80% Less Memory`, `Built-in Privacy & Reader`), browser comparison table, interactive feature tour, and startup destination picker.
+- **Pluto Shield, Reader Mode, Web Night Eye & Clean Sharing**:
   - **Pluto Shield**: Native DOM suppression for common ad slots, sponsored cards, and cookie consent banners on external websites.
-  - **Reader Mode (`Alt+R`)**: Extracts article headings and paragraphs into a distraction-free monochrome editorial view.
+  - **Reader Mode (`Alt+R`)**: Extracts article headings and paragraphs into a distraction-free Apple/Notion card view with estimated reading time.
+  - **Web Night Eye (`Alt+N`)**: Turns bright white websites into comfortable dark mode while keeping images and videos natural.
   - **Audio Mute (`Alt+M`)**: One-click muting for `<video>`/`<audio>` elements with tab badge indicator.
-  - **Copy as Markdown (`Ctrl+Shift+Y`)**: Copies `[Title](URL)` directly to the OS clipboard alongside Command Palette (`Ctrl+K`), Bookmarks Bar (`Ctrl+Shift+B`), Find Bar (`Ctrl+F`), and Pluto Native Inspector (`Ctrl+Shift+D`).
+  - **Tracker-Cleaned Link & Markdown Copy (`Ctrl+Shift+Y`)**: Strips `utm_*`, `fbclid`, `gclid`, and tracking query parameters purely in Rust when copying URLs or `[Title](URL)` Markdown links, alongside Command Palette (`Ctrl+K`), Bookmarks Bar (`Ctrl+Shift+B`), Find Bar (`Ctrl+F`), and Pluto Native Inspector (`Ctrl+Shift+D`).
 - **Windows Performance & Hibernation Tuning**:
   - GPU rasterization & zero-copy flags (`BROWSER_PERF_ARGS`) and automatic `MemoryUsageLevel::Low` / `MemoryUsageLevel::Normal` memory trimming when switching tabs or visiting internal routes.
 
@@ -158,9 +159,10 @@ Managed by `StorageManager` in [src/storage.rs](src/storage.rs) via `ProjectDirs
 | `Ctrl+Shift+T` | `Cmd+Shift+T` | Reopen the most recently closed tab |
 | `Ctrl+K` / `Ctrl+P` | `Cmd+K` / `Cmd+P` | Open the Command Palette |
 | `Ctrl+Shift+B` | `Cmd+Shift+B` | Toggle the Bookmarks Bar |
-| `Alt+R` | `Alt+R` | Toggle Reader Mode |
+| `Alt+R` | `Alt+R` | Toggle Apple/Notion Reader Mode |
+| `Alt+N` | `Alt+N` | Toggle Web Night Eye (Dark Mode for websites) |
 | `Alt+M` | `Alt+M` | Mute / unmute active tab audio |
-| `Ctrl+Shift+Y` | `Cmd+Shift+Y` | Copy page link as Markdown `[Title](URL)` |
+| `Ctrl+Shift+Y` | `Cmd+Shift+Y` | Copy tracker-clean link as Markdown `[Title](URL)` |
 | `Ctrl+L` | `Cmd+L` | Focus and select the omnibox |
 | `Ctrl+R` / `F5` | `Cmd+R` / `F5` | Reload the active tab |
 | `Ctrl+Tab` | `Ctrl+Tab` | Switch to the next tab |
@@ -192,8 +194,8 @@ pluto-browser/
     ├── storage.rs       # BOM-tolerant JSON persistence (bookmarks, history, session, layout settings)
     └── ui/
         ├── mod.rs       # 100% Pure Rust NativeUi: Chrome, Sidebar, Settings, Welcome, New Tab & Palette
-        ├── canvas.rs    # Zero-copy pixel Canvas, cached ab_glyph fonts, sharp 0px boxes & vector icons
-        └── theme.rs     # Zed Obsidian Pure Black & Stark Paper Grid ThemePalette tokens
+        ├── canvas.rs    # Zero-copy pixel Canvas, cached ab_glyph fonts, SDF rounded cards & vector icons
+        └── theme.rs     # Apple Daylight & Cupertino Midnight Notion-inspired ThemePalette tokens
 ```
 
 ---

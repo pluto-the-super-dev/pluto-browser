@@ -3,7 +3,7 @@ use ab_glyph::{point, Font, FontArc, PxScale, ScaleFont};
 use std::collections::HashMap;
 use std::fs;
 
-const FONT_SCALE: f32 = 1.38;
+const FONT_SCALE: f32 = 1.42;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FontStyle {
@@ -335,31 +335,246 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    /// Zero-rounded sharp rectangular fill matching the Zed brutalist box grid.
-    pub fn fill_rounded_rect(&mut self, x: f32, y: f32, w: f32, h: f32, _radius: f32, color: Color) {
-        self.fill_rect(x, y, w, h, color);
+    /// Smooth anti-aliased rounded rectangle fill (Apple / Notion surface geometry).
+    pub fn fill_rounded_rect(&mut self, x: f32, y: f32, w: f32, h: f32, radius: f32, color: Color) {
+        if w <= 0.0 || h <= 0.0 || color.a == 0 {
+            return;
+        }
+        if radius <= 0.5 {
+            self.fill_rect(x, y, w, h, color);
+            return;
+        }
+
+        let clip = self.clip();
+        let px0 = x * self.scale;
+        let py0 = y * self.scale;
+        let pw = w * self.scale;
+        let ph = h * self.scale;
+        let pr = (radius * self.scale).min(pw * 0.5).min(ph * 0.5).max(0.5);
+
+        let sx0 = (px0.floor() as i32).max(clip.x0);
+        let sy0 = (py0.floor() as i32).max(clip.y0);
+        let sx1 = ((px0 + pw).ceil() as i32).min(clip.x1);
+        let sy1 = ((py0 + ph).ceil() as i32).min(clip.y1);
+        if sx0 >= sx1 || sy0 >= sy1 {
+            return;
+        }
+
+        let hx = pw * 0.5;
+        let hy = ph * 0.5;
+        let mcx = px0 + hx;
+        let mcy = py0 + hy;
+        let rx = (hx - pr).max(0.0);
+        let ry = (hy - pr).max(0.0);
+
+        // Interior rectangle bounds guaranteed to have cov == 1.0
+        let mid_x0 = ((mcx - rx).ceil() as i32).max(sx0);
+        let mid_x1 = ((mcx + rx).floor() as i32).min(sx1);
+        let mid_y0 = ((mcy - ry).ceil() as i32).max(sy0);
+        let mid_y1 = ((mcy + ry).floor() as i32).min(sy1);
+        let full_x0 = ((px0 + 0.6).ceil() as i32).max(sx0);
+        let full_x1 = ((px0 + pw - 0.6).floor() as i32).min(sx1);
+
+        let opaque_val = if color.a == 255 {
+            Some(color.to_u32_opaque())
+        } else {
+            None
+        };
+
+        for py in sy0..sy1 {
+            if py >= mid_y0 && py < mid_y1 && full_x0 < full_x1 {
+                if let Some(val) = opaque_val {
+                    let row_start = (py as usize) * self.phys_w + (full_x0 as usize);
+                    self.buf[row_start..(row_start + (full_x1 - full_x0) as usize)].fill(val);
+                    for px in sx0..full_x0 {
+                        let fx = px as f32 + 0.5;
+                        let fy = py as f32 + 0.5;
+                        let qx = (fx - mcx).abs() - rx;
+                        let qy = (fy - mcy).abs() - ry;
+                        let sd = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - pr;
+                        let cov = (0.5 - sd).clamp(0.0, 1.0);
+                        if cov > 0.0 {
+                            self.blend_phys_px(px, py, color, cov);
+                        }
+                    }
+                    for px in full_x1..sx1 {
+                        let fx = px as f32 + 0.5;
+                        let fy = py as f32 + 0.5;
+                        let qx = (fx - mcx).abs() - rx;
+                        let qy = (fy - mcy).abs() - ry;
+                        let sd = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - pr;
+                        let cov = (0.5 - sd).clamp(0.0, 1.0);
+                        if cov > 0.0 {
+                            self.blend_phys_px(px, py, color, cov);
+                        }
+                    }
+                    continue;
+                }
+            }
+
+            let fy = py as f32 + 0.5;
+            if py >= mid_y0 && py < mid_y1 {
+                for px in sx0..sx1 {
+                    let fx = px as f32 + 0.5;
+                    let qx = (fx - mcx).abs() - rx;
+                    let qy = (fy - mcy).abs() - ry;
+                    let sd = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - pr;
+                    let cov = (0.5 - sd).clamp(0.0, 1.0);
+                    if cov > 0.0 {
+                        self.blend_phys_px(px, py, color, cov);
+                    }
+                }
+            } else if let (Some(val), true) = (opaque_val, mid_x0 < mid_x1 && (fy - mcy).abs() < hy - 0.6) {
+                for px in sx0..mid_x0 {
+                    let fx = px as f32 + 0.5;
+                    let qx = (fx - mcx).abs() - rx;
+                    let qy = (fy - mcy).abs() - ry;
+                    let sd = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - pr;
+                    let cov = (0.5 - sd).clamp(0.0, 1.0);
+                    if cov > 0.0 {
+                        self.blend_phys_px(px, py, color, cov);
+                    }
+                }
+                let row_start = (py as usize) * self.phys_w + (mid_x0 as usize);
+                self.buf[row_start..(row_start + (mid_x1 - mid_x0) as usize)].fill(val);
+                for px in mid_x1..sx1 {
+                    let fx = px as f32 + 0.5;
+                    let qx = (fx - mcx).abs() - rx;
+                    let qy = (fy - mcy).abs() - ry;
+                    let sd = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - pr;
+                    let cov = (0.5 - sd).clamp(0.0, 1.0);
+                    if cov > 0.0 {
+                        self.blend_phys_px(px, py, color, cov);
+                    }
+                }
+            } else {
+                for px in sx0..sx1 {
+                    let fx = px as f32 + 0.5;
+                    let qx = (fx - mcx).abs() - rx;
+                    let qy = (fy - mcy).abs() - ry;
+                    let sd = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - pr;
+                    let cov = (0.5 - sd).clamp(0.0, 1.0);
+                    if cov > 0.0 {
+                        self.blend_phys_px(px, py, color, cov);
+                    }
+                }
+            }
+        }
     }
 
-    /// Crisp 0px sharp architectural rectangular border (4 SIMD horizontal/vertical edges).
+    /// Subtle macOS / Notion ambient elevation shadow beneath floating cards & palettes.
+    pub fn fill_soft_shadow(&mut self, x: f32, y: f32, w: f32, h: f32, radius: f32, spread: f32) {
+        self.fill_rounded_rect(
+            x - spread * 0.4,
+            y + spread * 0.7,
+            w + spread * 0.8,
+            h + spread * 0.8,
+            radius + spread * 0.4,
+            Color::rgba(0, 0, 0, 10),
+        );
+        self.fill_rounded_rect(
+            x - spread * 0.15,
+            y + spread * 0.35,
+            w + spread * 0.3,
+            h + spread * 0.3,
+            radius + spread * 0.15,
+            Color::rgba(0, 0, 0, 16),
+        );
+    }
+
+    /// Smooth anti-aliased rounded rectangle border (fast SDF with interior skip).
     pub fn stroke_rounded_rect(
         &mut self,
         x: f32,
         y: f32,
         w: f32,
         h: f32,
-        _radius: f32,
+        radius: f32,
         thickness: f32,
         color: Color,
     ) {
         if w <= 0.0 || h <= 0.0 || thickness <= 0.0 || color.a == 0 {
             return;
         }
-        let t = thickness.max(1.0);
-        self.fill_rect(x, y, w, t, color);
-        self.fill_rect(x, (y + h - t).max(y), w, t, color);
-        if h > t * 2.0 {
-            self.fill_rect(x, y + t, t, h - t * 2.0, color);
-            self.fill_rect((x + w - t).max(x), y + t, t, h - t * 2.0, color);
+        if radius <= 0.5 {
+            let t = thickness.max(1.0);
+            self.fill_rect(x, y, w, t, color);
+            self.fill_rect(x, (y + h - t).max(y), w, t, color);
+            if h > t * 2.0 {
+                self.fill_rect(x, y + t, t, h - t * 2.0, color);
+                self.fill_rect((x + w - t).max(x), y + t, t, h - t * 2.0, color);
+            }
+            return;
+        }
+
+        let clip = self.clip();
+        let px0 = x * self.scale;
+        let py0 = y * self.scale;
+        let pw = w * self.scale;
+        let ph = h * self.scale;
+        let pr = (radius * self.scale).min(pw * 0.5).min(ph * 0.5).max(0.5);
+        let half_t = (thickness * self.scale * 0.5).max(0.5);
+        let pad = half_t + 1.5;
+
+        let sx0 = ((px0 - pad).floor() as i32).max(clip.x0);
+        let sy0 = ((py0 - pad).floor() as i32).max(clip.y0);
+        let sx1 = ((px0 + pw + pad).ceil() as i32).min(clip.x1);
+        let sy1 = ((py0 + ph + pad).ceil() as i32).min(clip.y1);
+        if sx0 >= sx1 || sy0 >= sy1 {
+            return;
+        }
+
+        let hx = pw * 0.5;
+        let hy = ph * 0.5;
+        let mcx = px0 + hx;
+        let mcy = py0 + hy;
+        let rx = (hx - pr).max(0.0);
+        let ry = (hy - pr).max(0.0);
+
+        let inner_x0 = ((px0 + pr.max(half_t) + 2.0).ceil() as i32).max(sx0);
+        let inner_x1 = ((px0 + pw - pr.max(half_t) - 2.0).floor() as i32).min(sx1);
+        let inner_y0 = ((py0 + half_t + 2.0).ceil() as i32).max(sy0);
+        let inner_y1 = ((py0 + ph - half_t - 2.0).floor() as i32).min(sy1);
+
+        for py in sy0..sy1 {
+            let fy = py as f32 + 0.5;
+            let skip_mid = py >= inner_y0 && py < inner_y1 && inner_x0 < inner_x1;
+            if skip_mid {
+                for px in sx0..inner_x0 {
+                    let fx = px as f32 + 0.5;
+                    let qx = (fx - mcx).abs() - rx;
+                    let qy = (fy - mcy).abs() - ry;
+                    let sd = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - pr;
+                    let dist = sd.abs() - half_t;
+                    let cov = (0.5 - dist).clamp(0.0, 1.0);
+                    if cov > 0.0 {
+                        self.blend_phys_px(px, py, color, cov);
+                    }
+                }
+                for px in inner_x1..sx1 {
+                    let fx = px as f32 + 0.5;
+                    let qx = (fx - mcx).abs() - rx;
+                    let qy = (fy - mcy).abs() - ry;
+                    let sd = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - pr;
+                    let dist = sd.abs() - half_t;
+                    let cov = (0.5 - dist).clamp(0.0, 1.0);
+                    if cov > 0.0 {
+                        self.blend_phys_px(px, py, color, cov);
+                    }
+                }
+            } else {
+                for px in sx0..sx1 {
+                    let fx = px as f32 + 0.5;
+                    let qx = (fx - mcx).abs() - rx;
+                    let qy = (fy - mcy).abs() - ry;
+                    let sd = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - pr;
+                    let dist = sd.abs() - half_t;
+                    let cov = (0.5 - dist).clamp(0.0, 1.0);
+                    if cov > 0.0 {
+                        self.blend_phys_px(px, py, color, cov);
+                    }
+                }
+            }
         }
     }
 
@@ -591,18 +806,19 @@ impl<'a> Canvas<'a> {
     // -------------------------------------------------------------------------
 
     pub fn draw_pluto_logo(&mut self, x: f32, y: f32, size: f32, hover_t: f32) {
-        self.fill_rect(x, y, size, size, Color::rgb(0x04, 0x04, 0x05));
+        let r = (size * 0.26).max(5.0);
+        self.fill_rounded_rect(x, y, size, size, r, Color::rgb(0x1c, 0x1c, 0x1e));
         self.stroke_rounded_rect(
             x,
             y,
             size,
             size,
-            0.0,
+            r,
             1.0,
             if hover_t > 0.5 {
-                Color::rgb(0xff, 0xff, 0xff)
+                Color::rgba(0xff, 0xff, 0xff, 210)
             } else {
-                Color::rgba(0xe4, 0xe4, 0xe7, 150)
+                Color::rgba(0xe5, 0xe5, 0xea, 95)
             },
         );
 
@@ -613,9 +829,9 @@ impl<'a> Canvas<'a> {
         let rx = size * 0.40;
         let ry = size * 0.13;
 
-        self.draw_tilted_ellipse_half(cx, cy, rx, ry, tilt, 1.35, Color::rgba(0x9d, 0x8d, 0xf7, 175), true);
+        self.draw_tilted_ellipse_half(cx, cy, rx, ry, tilt, 1.35, Color::rgba(0xcb, 0xd5, 0xe1, 160), true);
 
-        // Shaded Planet Pluto sphere
+        // Shaded Planet Pluto sphere (NASA New Horizons warm sandstone + nitrogen ice frost)
         let clip = self.clip();
         let pcx = cx * self.scale;
         let pcy = cy * self.scale;
@@ -639,13 +855,13 @@ impl<'a> Canvas<'a> {
                 let nz = (1.0 - nx * nx - ny * ny).max(0.0).sqrt();
                 let diffuse = (nx * -0.52 + ny * -0.48 + nz * 0.70).clamp(0.0, 1.0);
                 let rim = (1.0 - nz).powi(3);
-                let ice = (1.0 - ((nx - 0.16).powi(2) + (ny + 0.04).powi(2)).sqrt() * 1.9).max(0.0) * 0.5;
-                let mut r = 68.0 + diffuse * 155.0 + rim * 60.0;
-                let mut g = 55.0 + diffuse * 126.0 + rim * 52.0;
-                let mut b = 114.0 + diffuse * 110.0 + rim * 104.0;
+                let ice = (1.0 - ((nx - 0.16).powi(2) + (ny + 0.04).powi(2)).sqrt() * 1.9).max(0.0) * 0.52;
+                let mut r = 74.0 + diffuse * 158.0 + rim * 54.0;
+                let mut g = 60.0 + diffuse * 134.0 + rim * 46.0;
+                let mut b = 52.0 + diffuse * 116.0 + rim * 42.0;
                 r = r * (1.0 - ice) + 250.0 * ice;
-                g = g * (1.0 - ice) + 240.0 * ice;
-                b = b * (1.0 - ice) + 246.0 * ice;
+                g = g * (1.0 - ice) + 244.0 * ice;
+                b = b * (1.0 - ice) + 234.0 * ice;
                 let col = Color::rgb(
                     r.clamp(0.0, 255.0) as u8,
                     g.clamp(0.0, 255.0) as u8,
@@ -655,12 +871,12 @@ impl<'a> Canvas<'a> {
             }
         }
 
-        self.draw_tilted_ellipse_half(cx, cy, rx, ry, tilt, 1.55, Color::rgba(0xe8, 0xdb, 0xff, 240), false);
+        self.draw_tilted_ellipse_half(cx, cy, rx, ry, tilt, 1.55, Color::rgba(0xf5, 0xf5, 0xf7, 235), false);
 
         let moon_a = -0.62 + hover_t * 0.35;
         let mx = cx + (rx * 0.92) * moon_a.cos();
         let my = cy + (rx * 0.62) * moon_a.sin();
-        self.fill_circle(mx, my, size * 0.068, Color::rgb(0xeb, 0xde, 0xff));
+        self.fill_circle(mx, my, size * 0.068, Color::rgb(0xe8, 0xd7, 0xb8));
     }
 
     pub fn draw_tilted_ellipse_half(
@@ -716,41 +932,42 @@ impl<'a> Canvas<'a> {
     }
 
     pub fn draw_pluto_hero_system(&mut self, cx: f32, cy: f32, time_sec: f32, px_off: f32, py_off: f32) {
-        let bob = (time_sec * 1.45).sin() * 4.5;
+        let bob = (time_sec * 1.35).sin() * 5.0;
         let center_x = cx + px_off;
         let center_y = cy + py_off + bob;
 
-        self.fill_radial_glow(center_x, center_y, 76.0, Color::rgba(0x7b, 0x3f, 0xf2, 82));
-        self.fill_radial_glow(center_x - 16.0, center_y - 12.0, 48.0, Color::rgba(0x56, 0x45, 0xd4, 70));
+        // Soft warm champagne & cool sky atmospheric halo (no neon/purple)
+        self.fill_radial_glow(center_x, center_y, 88.0, Color::rgba(0x94, 0xa3, 0xb8, 44));
+        self.fill_radial_glow(center_x - 16.0, center_y - 12.0, 56.0, Color::rgba(0xd9, 0x77, 0x06, 28));
 
         let tilt = -0.32 + (time_sec * 0.45).sin() * 0.04;
-        // Back orbital rings
+        // Back orbital rings (brushed silver & warm champagne)
         self.draw_tilted_ellipse_half(
             center_x,
             center_y,
-            84.0,
-            24.0,
+            92.0,
+            26.0,
             tilt,
             1.4,
-            Color::rgba(0x7b, 0x3f, 0xf2, 130),
+            Color::rgba(0x94, 0xa3, 0xb8, 125),
             true,
         );
         self.draw_tilted_ellipse_half(
             center_x,
             center_y,
-            68.0,
-            19.0,
+            74.0,
+            21.0,
             tilt,
             2.1,
-            Color::rgba(0x9d, 0x8d, 0xf7, 175),
+            Color::rgba(0xd9, 0xa8, 0x5c, 155),
             true,
         );
 
-        // Shaded Planet Pluto sphere + Tombaugh Regio heart basin
+        // Shaded Planet Pluto sphere + Tombaugh Regio glacial heart basin
         let clip = self.clip();
         let pcx = center_x * self.scale;
         let pcy = center_y * self.scale;
-        let p_rad = 35.0 * self.scale;
+        let p_rad = 38.0 * self.scale;
         let x0 = ((pcx - p_rad - 2.0).floor() as i32).max(clip.x0);
         let y0 = ((pcy - p_rad - 2.0).floor() as i32).max(clip.y0);
         let x1 = ((pcx + p_rad + 2.0).ceil() as i32).min(clip.x1);
@@ -780,15 +997,16 @@ impl<'a> Canvas<'a> {
                 let heart_l = ((hx + 0.12).powi(2) + (hy + 0.06).powi(2)).sqrt();
                 let heart_r = ((hx - 0.12).powi(2) + (hy + 0.06).powi(2)).sqrt();
                 let heart_b = (hx.powi(2) * 0.9 + (hy - 0.12).powi(2)).sqrt();
-                let tombaugh = (1.0 - (heart_l.min(heart_r).min(heart_b)) * 3.8).max(0.0) * 0.42;
+                let tombaugh = (1.0 - (heart_l.min(heart_r).min(heart_b)) * 3.8).max(0.0) * 0.45;
 
-                let mut r = 24.0 + diffuse * 212.0 + rim * 70.0 + band;
-                let mut g = 20.0 + diffuse * 150.0 + rim * 55.0 + band * 0.6;
-                let mut b = 58.0 + diffuse * 165.0 + rim * 125.0;
+                // Natural Pluto sandstone, caramel ochre & glacial frost tones
+                let mut r = 46.0 + diffuse * 188.0 + rim * 52.0 + band;
+                let mut g = 38.0 + diffuse * 156.0 + rim * 48.0 + band * 0.7;
+                let mut b = 34.0 + diffuse * 134.0 + rim * 56.0;
 
-                r = r * (1.0 - tombaugh) + 255.0 * tombaugh;
+                r = r * (1.0 - tombaugh) + 252.0 * tombaugh;
                 g = g * (1.0 - tombaugh) + 245.0 * tombaugh;
-                b = b * (1.0 - tombaugh) + 236.0 * tombaugh;
+                b = b * (1.0 - tombaugh) + 233.0 * tombaugh;
 
                 let col = Color::rgb(
                     r.clamp(0.0, 255.0) as u8,
@@ -803,35 +1021,35 @@ impl<'a> Canvas<'a> {
         self.draw_tilted_ellipse_half(
             center_x,
             center_y,
-            68.0,
-            19.0,
+            74.0,
+            21.0,
             tilt,
             2.3,
-            Color::rgba(0xf0, 0xe4, 0xff, 240),
+            Color::rgba(0xe8, 0xd2, 0xa6, 230),
             false,
         );
         self.draw_tilted_ellipse_half(
             center_x,
             center_y,
-            84.0,
-            24.0,
+            92.0,
+            26.0,
             tilt,
-            1.2,
-            Color::rgba(0xd6, 0xb6, 0xf6, 150),
+            1.3,
+            Color::rgba(0xcb, 0xd5, 0xe1, 175),
             false,
         );
 
-        // Orbiting Charon moon along upper-right/front path
+        // Orbiting Charon moon along orbital path
         let orb_t = time_sec * 0.72 - 0.45;
-        let ox = orb_t.cos() * 75.0;
-        let oy = orb_t.sin() * 21.0;
+        let ox = orb_t.cos() * 82.0;
+        let oy = orb_t.sin() * 23.0;
         let cos_t = tilt.cos();
         let sin_t = tilt.sin();
         let charon_x = center_x + ox * cos_t + oy * sin_t;
         let charon_y = center_y - ox * sin_t + oy * cos_t;
 
-        self.fill_radial_glow(charon_x, charon_y, 12.0, Color::rgba(0xd6, 0xb6, 0xf6, 95));
-        self.fill_circle(charon_x, charon_y, 5.2, Color::rgb(0xf2, 0xe9, 0xff));
+        self.fill_radial_glow(charon_x, charon_y, 13.0, Color::rgba(0x94, 0xa3, 0xb8, 85));
+        self.fill_circle(charon_x, charon_y, 5.6, Color::rgb(0xe2, 0xe8, 0xf0));
     }
 
     pub fn draw_icon_back(&mut self, cx: f32, cy: f32, color: Color) {
@@ -950,17 +1168,17 @@ impl<'a> Canvas<'a> {
     }
 
     pub fn draw_icon_sidebar(&mut self, cx: f32, cy: f32, color: Color) {
-        self.stroke_rounded_rect(cx - 6.0, cy - 5.0, 12.0, 10.0, 0.0, 1.3, color);
-        self.draw_line_aa(cx - 2.0, cy - 5.0, cx - 2.0, cy + 5.0, 1.3, color);
+        self.stroke_rounded_rect(cx - 6.0, cy - 5.0, 12.0, 10.0, 2.2, 1.35, color);
+        self.draw_line_aa(cx - 2.0, cy - 4.5, cx - 2.0, cy + 4.5, 1.35, color);
     }
 
     pub fn draw_icon_settings(&mut self, cx: f32, cy: f32, color: Color) {
         self.draw_line_aa(cx - 5.5, cy - 3.5, cx + 5.5, cy - 3.5, 1.35, color);
-        self.fill_rect(cx - 3.0, cy - 5.2, 3.2, 3.4, color);
+        self.fill_rounded_rect(cx - 3.2, cy - 5.2, 3.6, 3.4, 1.5, color);
         self.draw_line_aa(cx - 5.5, cy, cx + 5.5, cy, 1.35, color);
-        self.fill_rect(cx + 1.0, cy - 1.7, 3.2, 3.4, color);
+        self.fill_rounded_rect(cx + 0.8, cy - 1.7, 3.6, 3.4, 1.5, color);
         self.draw_line_aa(cx - 5.5, cy + 3.5, cx + 5.5, cy + 3.5, 1.35, color);
-        self.fill_rect(cx - 2.0, cy + 1.8, 3.2, 3.4, color);
+        self.fill_rounded_rect(cx - 2.2, cy + 1.8, 3.6, 3.4, 1.5, color);
     }
 
     pub fn draw_icon_shield(&mut self, cx: f32, cy: f32, active: bool, color: Color) {
@@ -980,6 +1198,14 @@ impl<'a> Canvas<'a> {
         self.draw_line_aa(cx - 5.0, cy - 3.5, cx + 5.0, cy - 3.5, 1.45, color);
         self.draw_line_aa(cx - 5.0, cy, cx + 5.0, cy, 1.45, color);
         self.draw_line_aa(cx - 5.0, cy + 3.5, cx + 2.5, cy + 3.5, 1.45, color);
+    }
+
+    pub fn draw_icon_night(&mut self, cx: f32, cy: f32, active: bool, color: Color) {
+        self.stroke_circle(cx, cy, 4.8, 1.45, color);
+        self.fill_circle(cx + 1.8, cy - 1.2, 2.5, color);
+        if active {
+            self.fill_circle(cx - 3.8, cy - 3.8, 1.2, color);
+        }
     }
 
     pub fn draw_icon_volume(&mut self, cx: f32, cy: f32, muted: bool, color: Color) {

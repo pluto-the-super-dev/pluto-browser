@@ -61,6 +61,10 @@ const TAB_INIT_SCRIPT: &str = r##"
       e.preventDefault();
       e.stopPropagation();
       post({ cmd: "toggle_reader_mode" });
+    } else if (e.altKey && !ctrl && !e.shiftKey && key === "n") {
+      e.preventDefault();
+      e.stopPropagation();
+      post({ cmd: "toggle_night_mode" });
     } else if (e.altKey && !ctrl && !e.shiftKey && key === "m") {
       e.preventDefault();
       e.stopPropagation();
@@ -189,10 +193,34 @@ const TAB_INIT_SCRIPT: &str = r##"
           '[class*="ad-slot"]',
           '[class*="sponsored-"]',
           '[data-ad]',
+          '[data-testid*="ad-"]',
           '[aria-label*="Sponsored"]',
+          'iframe[src*="doubleclick"]',
           '#onetrust-banner-sdk',
+          '#CybotCookiebotDialog',
+          '.qc-cmp2-container',
+          '.cc-window',
           '.fc-consent-root'
         ].join(",") + " { display: none !important; }";
+        (document.head || document.documentElement).appendChild(el);
+      }
+    } catch (_) {}
+  };
+
+  window.__plutoToggleNightMode = function(active) {
+    try {
+      const id = "__pluto-night-style";
+      const existing = document.getElementById(id);
+      if (!active) {
+        if (existing) existing.remove();
+        return;
+      }
+      if (!existing) {
+        const el = document.createElement("style");
+        el.id = id;
+        el.textContent =
+          "html { filter: invert(0.91) hue-rotate(180deg) !important; background: #ffffff !important; }" +
+          "img, video, picture, canvas, svg, [style*='background-image'] { filter: invert(1) hue-rotate(180deg) !important; }";
         (document.head || document.documentElement).appendChild(el);
       }
     } catch (_) {}
@@ -217,47 +245,59 @@ const TAB_INIT_SCRIPT: &str = r##"
       }
       if (existing) existing.remove();
 
-      const bg = isDark ? "#08080a" : "#ffffff";
-      const surface = isDark ? "#0f0f13" : "#f6f6f7";
-      const fg = isDark ? "#f4f4f5" : "#09090b";
-      const muted = isDark ? "#a1a1aa" : "#52525b";
-      const border = isDark ? "#2c2c35" : "#d4d4d8";
+      const bg = isDark ? "#161618" : "#f5f5f4";
+      const surface = isDark ? "#1f1f22" : "#ffffff";
+      const fg = isDark ? "#f5f5f7" : "#1d1d1f";
+      const muted = isDark ? "#a1a1a6" : "#787671";
+      const border = isDark ? "#2d2d31" : "#e6e5e3";
 
       const overlay = document.createElement("div");
       overlay.id = id;
       overlay.style.cssText =
-        "position:fixed;inset:0;z-index:2147483647;overflow-y:auto;padding:48px 24px;" +
-        "background:" + bg + ";color:" + fg + ";font-family:system-ui,-apple-system,sans-serif;";
+        "position:fixed;inset:0;z-index:2147483647;overflow-y:auto;padding:52px 24px;" +
+        "background:" + bg + ";color:" + fg + ";font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;";
 
       const box = document.createElement("div");
       box.style.cssText =
-        "max-width:740px;margin:0 auto;border:1px solid " + border + ";background:" + surface + ";padding:36px 40px;";
+        "max-width:740px;margin:0 auto;border:1px solid " + border + ";border-radius:16px;" +
+        "box-shadow:0 14px 40px rgba(0,0,0,0.08);background:" + surface + ";padding:44px 48px;";
+
+      const source = document.querySelector("article") || document.querySelector("main") || document.body;
+      const rawWords = (source ? source.innerText || "" : "").trim().split(/\s+/).filter(Boolean).length;
+      const mins = Math.max(1, Math.round(rawWords / 210));
 
       const topBar = document.createElement("div");
       topBar.style.cssText =
         "display:flex;justify-content:space-between;align-items:center;padding-bottom:16px;" +
-        "margin-bottom:24px;border-bottom:1px solid " + border + ";font-size:12px;letter-spacing:1px;color:" + muted + ";";
+        "margin-bottom:28px;border-bottom:1px solid " + border + ";font-size:13px;color:" + muted + ";";
       const badge = document.createElement("span");
-      badge.textContent = "PLUTO READER MODE // " + (location.hostname || "ARTICLE");
+      badge.textContent = (location.hostname || "Article") + "  ·  ~" + mins + " min read";
+      const closeBtn = document.createElement("button");
+      closeBtn.textContent = "Exit Reader (Alt+R)";
+      closeBtn.style.cssText =
+        "border:1px solid " + border + ";background:transparent;color:" + fg + ";" +
+        "border-radius:999px;padding:6px 14px;font-size:12px;cursor:pointer;";
+      closeBtn.onclick = function() { post({ cmd: "toggle_reader_mode" }); };
       topBar.appendChild(badge);
+      topBar.appendChild(closeBtn);
       box.appendChild(topBar);
 
       const h1 = document.createElement("h1");
       h1.textContent = document.title || "Reader View";
-      h1.style.cssText = "font-size:32px;line-height:1.25;margin:0 0 24px 0;font-weight:700;";
+      h1.style.cssText = "font-size:34px;line-height:1.22;margin:0 0 26px 0;font-weight:700;letter-spacing:-0.02em;";
       box.appendChild(h1);
 
-      const source = document.querySelector("article") || document.querySelector("main") || document.body;
-      const nodes = source ? source.querySelectorAll("h2,h3,p,li,blockquote,pre") : [];
+      const nodes = source ? source.querySelectorAll("h2,h3,h4,p,li,blockquote,pre") : [];
       let count = 0;
-      for (let i = 0; i < nodes.length && count < 120; i++) {
+      for (let i = 0; i < nodes.length && count < 140; i++) {
         const txt = (nodes[i].innerText || "").trim();
-        if (txt.length < 24 && nodes[i].tagName !== "H2" && nodes[i].tagName !== "H3") continue;
-        const p = document.createElement(nodes[i].tagName === "H2" ? "h2" : nodes[i].tagName === "H3" ? "h3" : "p");
+        if (txt.length < 22 && !nodes[i].tagName.startsWith("H")) continue;
+        const tag = nodes[i].tagName === "H2" ? "h2" : (nodes[i].tagName === "H3" || nodes[i].tagName === "H4") ? "h3" : "p";
+        const p = document.createElement(tag);
         p.textContent = txt;
-        p.style.cssText = nodes[i].tagName.startsWith("H")
-          ? "font-size:21px;line-height:1.35;margin:28px 0 12px 0;font-weight:600;"
-          : "font-size:17px;line-height:1.72;margin:0 0 16px 0;color:" + fg + ";";
+        p.style.cssText = tag.startsWith("h")
+          ? "font-size:22px;line-height:1.35;margin:30px 0 12px 0;font-weight:600;letter-spacing:-0.01em;"
+          : "font-size:17.5px;line-height:1.74;margin:0 0 18px 0;color:" + fg + ";";
         box.appendChild(p);
         count++;
       }
@@ -290,6 +330,7 @@ pub struct Tab {
     pub pinned: bool,
     pub is_muted: bool,
     pub reader_active: bool,
+    pub night_active: bool,
     pub zoom: f64,
     pub telemetry: Option<PageTelemetry>,
     pub webview: Option<WebView>,
@@ -414,6 +455,7 @@ impl TabManager {
             pinned: false,
             is_muted: false,
             reader_active: false,
+            night_active: false,
             zoom,
             telemetry: None,
             webview,
@@ -612,6 +654,7 @@ impl TabManager {
         self.tabs[idx].title = derive_title_from_url(url);
         self.tabs[idx].telemetry = None;
         self.tabs[idx].reader_active = false;
+        self.tabs[idx].night_active = false;
 
         if NativeUi::is_internal_page(url) {
             self.tabs[idx].favicon = None;
@@ -796,6 +839,24 @@ impl TabManager {
         active
     }
 
+    pub fn toggle_night_active(&mut self) -> bool {
+        let Some(tab) = self.active_tab_mut() else {
+            return false;
+        };
+        if NativeUi::is_internal_page(&tab.url) {
+            return false;
+        }
+        tab.night_active = !tab.night_active;
+        let active = tab.night_active;
+        if let Some(wv) = &tab.webview {
+            let script = format!(
+                "window.__plutoToggleNightMode && window.__plutoToggleNightMode({active});"
+            );
+            let _ = wv.evaluate_script(&script);
+        }
+        active
+    }
+
     pub fn toggle_mute_active(&mut self) -> bool {
         let Some(tab) = self.active_tab_mut() else {
             return false;
@@ -830,8 +891,9 @@ impl TabManager {
             if let Some(wv) = &tab.webview {
                 if !NativeUi::is_internal_page(&tab.url) {
                     let script = format!(
-                        "window.__plutoSetShield && window.__plutoSetShield({shield_enabled}); window.__plutoSetMuted && window.__plutoSetMuted({});",
-                        tab.is_muted
+                        "window.__plutoSetShield && window.__plutoSetShield({shield_enabled}); window.__plutoSetMuted && window.__plutoSetMuted({}); window.__plutoToggleNightMode && window.__plutoToggleNightMode({});",
+                        tab.is_muted,
+                        tab.night_active
                     );
                     let _ = wv.evaluate_script(&script);
                 }
