@@ -3,7 +3,7 @@ use ab_glyph::{point, Font, FontArc, PxScale, ScaleFont};
 use std::collections::HashMap;
 use std::fs;
 
-const FONT_SCALE: f32 = 1.42;
+pub const FONT_SCALE: f32 = 1.42;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FontStyle {
@@ -1053,13 +1053,13 @@ impl<'a> Canvas<'a> {
     }
 
     pub fn draw_icon_back(&mut self, cx: f32, cy: f32, color: Color) {
-        self.draw_line_aa(cx + 2.5, cy - 4.5, cx - 2.5, cy, 1.7, color);
-        self.draw_line_aa(cx - 2.5, cy, cx + 2.5, cy + 4.5, 1.7, color);
+        self.draw_line_aa(cx + 2.5, cy - 4.5, cx - 2.5, cy, 1.45, color);
+        self.draw_line_aa(cx - 2.5, cy, cx + 2.5, cy + 4.5, 1.45, color);
     }
 
     pub fn draw_icon_forward(&mut self, cx: f32, cy: f32, color: Color) {
-        self.draw_line_aa(cx - 2.5, cy - 4.5, cx + 2.5, cy, 1.7, color);
-        self.draw_line_aa(cx + 2.5, cy, cx - 2.5, cy + 4.5, 1.7, color);
+        self.draw_line_aa(cx - 2.5, cy - 4.5, cx + 2.5, cy, 1.45, color);
+        self.draw_line_aa(cx + 2.5, cy, cx - 2.5, cy + 4.5, 1.45, color);
     }
 
     pub fn draw_icon_reload(&mut self, cx: f32, cy: f32, color: Color) {
@@ -1070,7 +1070,7 @@ impl<'a> Canvas<'a> {
             let px = cx + a.cos() * r;
             let py = cy + a.sin() * r;
             if let Some((lx, ly)) = prev {
-                self.draw_line_aa(lx, ly, px, py, 1.55, color);
+                self.draw_line_aa(lx, ly, px, py, 1.4, color);
             }
             prev = Some((px, py));
         }
@@ -1141,12 +1141,12 @@ impl<'a> Canvas<'a> {
     }
 
     pub fn draw_icon_plus(&mut self, cx: f32, cy: f32, color: Color) {
-        self.draw_line_aa(cx, cy - 4.5, cx, cy + 4.5, 1.7, color);
-        self.draw_line_aa(cx - 4.5, cy, cx + 4.5, cy, 1.7, color);
+        self.draw_line_aa(cx, cy - 4.5, cx, cy + 4.5, 1.4, color);
+        self.draw_line_aa(cx - 4.5, cy, cx + 4.5, cy, 1.4, color);
     }
 
     pub fn draw_icon_minus(&mut self, cx: f32, cy: f32, color: Color) {
-        self.draw_line_aa(cx - 4.5, cy, cx + 4.5, cy, 1.7, color);
+        self.draw_line_aa(cx - 4.5, cy, cx + 4.5, cy, 1.4, color);
     }
 
     pub fn draw_icon_copy(&mut self, cx: f32, cy: f32, color: Color) {
@@ -1223,8 +1223,55 @@ impl<'a> Canvas<'a> {
     }
 
     pub fn draw_icon_close(&mut self, cx: f32, cy: f32, color: Color) {
-        self.draw_line_aa(cx - 3.2, cy - 3.2, cx + 3.2, cy + 3.2, 1.5, color);
-        self.draw_line_aa(cx + 3.2, cy - 3.2, cx - 3.2, cy + 3.2, 1.5, color);
+        self.draw_line_aa(cx - 3.2, cy - 3.2, cx + 3.2, cy + 3.2, 1.4, color);
+        self.draw_line_aa(cx + 3.2, cy - 3.2, cx - 3.2, cy + 3.2, 1.4, color);
+    }
+
+    /// Windows-style caption glyphs (thin, crisp).
+    pub fn draw_icon_win_minimize(&mut self, cx: f32, cy: f32, color: Color) {
+        self.fill_rect(cx - 5.0, cy - 0.5, 10.0, 1.0, color);
+    }
+
+    pub fn draw_icon_win_maximize(&mut self, cx: f32, cy: f32, maximized: bool, color: Color) {
+        if maximized {
+            self.stroke_rounded_rect(cx - 5.0, cy - 3.0, 8.0, 8.0, 1.2, 1.0, color);
+            self.draw_line_aa(cx - 3.0, cy - 5.0, cx + 5.0, cy - 5.0, 1.0, color);
+            self.draw_line_aa(cx + 5.0, cy - 5.0, cx + 5.0, cy + 3.0, 1.0, color);
+        } else {
+            self.stroke_rounded_rect(cx - 5.0, cy - 5.0, 10.0, 10.0, 1.4, 1.0, color);
+        }
+    }
+
+    pub fn draw_icon_win_close(&mut self, cx: f32, cy: f32, color: Color) {
+        self.draw_line_aa(cx - 5.0, cy - 5.0, cx + 5.0, cy + 5.0, 1.1, color);
+        self.draw_line_aa(cx + 5.0, cy - 5.0, cx - 5.0, cy + 5.0, 1.1, color);
+    }
+
+    pub fn draw_icon_lock(&mut self, cx: f32, cy: f32, color: Color) {
+        self.stroke_rounded_rect(cx - 4.2, cy - 0.8, 8.4, 6.4, 1.6, 1.3, color);
+        let r = 2.6_f32;
+        let mut prev: Option<(f32, f32)> = None;
+        for step in 0..=10 {
+            let a = std::f32::consts::PI + (step as f32 / 10.0) * std::f32::consts::PI;
+            let p = (cx + a.cos() * r, cy - 2.4 + a.sin() * r);
+            if let Some(l) = prev {
+                self.draw_line_aa(l.0, l.1, p.0, p.1, 1.3, color);
+            }
+            prev = Some(p);
+        }
+        self.draw_line_aa(cx - r, cy - 2.4, cx - r, cy - 0.8, 1.3, color);
+        self.draw_line_aa(cx + r, cy - 2.4, cx + r, cy - 0.8, 1.3, color);
+    }
+
+    pub fn draw_icon_more(&mut self, cx: f32, cy: f32, color: Color) {
+        self.fill_circle(cx - 5.0, cy, 1.5, color);
+        self.fill_circle(cx, cy, 1.5, color);
+        self.fill_circle(cx + 5.0, cy, 1.5, color);
+    }
+
+    pub fn draw_icon_layout_top(&mut self, cx: f32, cy: f32, color: Color) {
+        self.stroke_rounded_rect(cx - 6.0, cy - 5.0, 12.0, 10.0, 2.2, 1.3, color);
+        self.draw_line_aa(cx - 5.5, cy - 1.6, cx + 5.5, cy - 1.6, 1.3, color);
     }
 
     pub fn draw_icon_theme(&mut self, cx: f32, cy: f32, dark: bool, color: Color) {

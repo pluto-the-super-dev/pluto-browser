@@ -30,6 +30,7 @@ fn run() -> Result<()> {
 
     let mut builder = WindowBuilder::new()
         .with_title("Pluto Browser")
+        .with_decorations(false)
         .with_inner_size(LogicalSize::new(1280.0, 820.0))
         .with_min_inner_size(LogicalSize::new(480.0, 360.0));
 
@@ -56,6 +57,11 @@ fn run() -> Result<()> {
                 }
                 other => {
                     app_state.handle_window_event(&other);
+                    if app_state.exit_requested() {
+                        app_state.save_session();
+                        *control_flow = ControlFlow::Exit;
+                        return;
+                    }
                 }
             },
             Event::UserEvent(user_event) => {

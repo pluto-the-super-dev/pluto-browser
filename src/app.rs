@@ -31,6 +31,7 @@ pub struct AppState {
     settings: AppSettings,
     closed_tabs: Vec<String>,
     needs_redraw: bool,
+    exit_requested: bool,
 }
 
 impl AppState {
@@ -178,11 +179,16 @@ impl AppState {
             settings,
             closed_tabs: Vec::new(),
             needs_redraw: true,
+            exit_requested: false,
         };
 
         app.sync_state(false);
         app.render();
         Ok(app)
+    }
+
+    pub fn exit_requested(&self) -> bool {
+        self.exit_requested
     }
 
     pub fn needs_fast_animation(&self) -> bool {
@@ -374,6 +380,20 @@ impl AppState {
         for action in actions {
             let res: Result<()> = (|| -> Result<()> {
                 match action {
+                    UiAction::WindowDrag => {
+                        let _ = self.window.drag_window();
+                    }
+                    UiAction::WindowMinimize => {
+                        self.window.set_minimized(true);
+                    }
+                    UiAction::WindowToggleMaximize => {
+                        let maximized = self.window.is_maximized();
+                        self.window.set_maximized(!maximized);
+                        need_draw = true;
+                    }
+                    UiAction::WindowClose => {
+                        self.exit_requested = true;
+                    }
                     UiAction::FocusHostWindow => {
                         let _ = self.window.set_focus();
                     }
@@ -1142,6 +1162,7 @@ impl AppState {
         if let Ok(mut buf) = self.surface.buffer_mut() {
             let buf_w = buf.width().get() as usize;
             let buf_h = buf.height().get() as usize;
+            self.ui.window_maximized = self.window.is_maximized();
             self.ui.render(&mut buf, buf_w, buf_h, scale, &snapshot);
 
             if !webview_visible {
